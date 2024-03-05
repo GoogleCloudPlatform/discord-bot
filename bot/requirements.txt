@@ -1,0 +1,6 @@
+# hikari is the static-typed Python API for writing Discord bots
+hikari
+# google-generativeai is the library used to communicate with Gemini API
+google-generativeai
+# google-cloud-aiplatform is the library for using Vertex AI API
+google-cloud-aiplatform
