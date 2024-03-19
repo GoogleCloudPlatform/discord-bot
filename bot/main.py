@@ -13,13 +13,24 @@
 # limitations under the License.
 
 import os
+import sys
+
 import hikari
 
+_GEMINI_TOS = "https://ai.google.dev/terms"
+_VERTEX_TOS = "https://developers.google.com/terms"
+
 if os.getenv("GEMINI_API_KEY"):
+    response = input(f"Just to make sure, did you read and accept Gemini API Terms of Service ( {_GEMINI_TOS} )? [NO/yes]")
     import google.generativeai as genai
     genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 else:
-    import vertex.preview.generative_models as genai
+    response = input(f"Just to make sure, did you read and accept the Vertex AI API Terms of Service ( {_VERTEX_TOS} )? [NO/yes]")
+    import vertexai.preview.generative_models as genai
+
+if response.lower() != "yes":
+    print("Please make sure you read and accept the ToS before starting this bot.")
+    sys.exit(1)
 
 model = genai.GenerativeModel(
     model_name="gemini-1.0-pro",

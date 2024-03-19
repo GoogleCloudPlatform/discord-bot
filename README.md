@@ -14,3 +14,13 @@ for your bot in the Discord Developer portal. Learn more about setting up your f
 [Discord documentation](https://discord.com/developers/docs/getting-started).
 
 
+## Vertex AI API and Gemini API Terms of Service
+
+To execute the code of the bot, you need to have access to Gemini API or Vertex AI API. In both cases, that's possible
+only once you accept Terms of Service of the services you decide to use. Please remember about those terms if you
+expose the bot to other users on your Discord server.
+
+Gemini API ToS: https://ai.google.dev/terms
+Vertex AI API ToS: https://developers.google.com/terms
+
+It is your responsibility to respect the privacy of users interacting with your bot.
