@@ -13,6 +13,10 @@ The bot also requires you to set `DISCORD_BOT_TOKEN` environmental variable to c
 for your bot in the Discord Developer portal. Learn more about setting up your first application/bot from 
 [Discord documentation](https://discord.com/developers/docs/getting-started).
 
+## User consent
+
+The bot will require the users to consent to it using AI to reply to their messages, before they get AI generated 
+response. The consents will be saved locally, so they are not lost between restarts.
 
 ## Vertex AI API and Gemini API Terms of Service
 
@@ -22,5 +26,3 @@ expose the bot to other users on your Discord server.
 
 Gemini API ToS: https://ai.google.dev/terms
 Vertex AI API ToS: https://developers.google.com/terms
-
-It is your responsibility to respect the privacy of users interacting with your bot.
