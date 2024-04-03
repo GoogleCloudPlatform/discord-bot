@@ -77,6 +77,6 @@ async def ping(event: hikari.GuildMessageCreateEvent) -> None:
             return
         await event.get_channel().trigger_typing()
         result = await model.generate_content_async(event.message.content)
-        await event.message.respond(result.text)
+        await event.message.respond(result.text[:2000])
 
 bot.run()
