@@ -42,7 +42,14 @@ if response.lower() != "yes":
 
 model = genai.GenerativeModel(
     model_name="gemini-1.0-pro",
-    generation_config=genai.GenerationConfig(max_output_tokens=1900)
+    generation_config=genai.GenerationConfig(
+        temperature=1,
+        max_output_tokens=1000
+    ),
+    system_instruction="You are a Discord bot named GeminiBot."
+                       "Your task is to provide useful information to users interacting with you. "
+                       "You should be positive, cheerful and polite. "
+                       "Feel free to use the default Discord emojis."
 )
 
 bot = hikari.GatewayBot(token=os.getenv("DISCORD_BOT_TOKEN"))
