@@ -12,78 +12,60 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import os
 import sys
+from collections import defaultdict
 
 import hikari
 
-import consent_management
+from gemini_model import GeminiBot, VERTEX_TOS
 
-_GEMINI_TOS = "https://ai.google.dev/terms"
-_VERTEX_TOS = "https://developers.google.com/terms"
-
-_CONSENT_REQUEST = """\
-Before I can answer to you, I need you to consent to me sending your requests over to the AI model hosted by Google.
-
-To give me your consent, please write a direct message to me saying "yes". 
-"""
-
-if os.getenv("GEMINI_API_KEY"):
-    response = input(f"Just to make sure, did you read and accept Gemini API Terms of Service ( {_GEMINI_TOS} )? [NO/yes] ")
-    import google.generativeai as genai
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-else:
-    response = input(f"Just to make sure, did you read and accept the Vertex AI API Terms of Service ( {_VERTEX_TOS} )? [NO/yes] ")
-    import vertexai.preview.generative_models as genai
-
-if response.lower() != "yes":
-    print("Please make sure you read and accept the ToS before starting this bot.")
-    sys.exit(1)
-
-model = genai.GenerativeModel(
-    model_name="gemini-1.0-pro",
-    generation_config=genai.GenerationConfig(
-        temperature=1,
-        max_output_tokens=1000
-    ),
-    system_instruction="You are a Discord bot named GeminiBot."
-                       "Your task is to provide useful information to users interacting with you. "
-                       "You should be positive, cheerful and polite. "
-                       "Feel free to use the default Discord emojis."
+bot = hikari.GatewayBot(
+    token=os.getenv("DISCORD_BOT_TOKEN"),
+    intents=hikari.Intents.ALL_GUILDS_UNPRIVILEGED | hikari.Intents.MESSAGE_CONTENT,
 )
 
-bot = hikari.GatewayBot(token=os.getenv("DISCORD_BOT_TOKEN"))
+gemini_bot: GeminiBot
 
 
 @bot.listen()
-async def private_message(event: hikari.DMMessageCreateEvent) -> None:
-    """Check if the message says "yes", record the consent if yes."""
-    if not event.is_human:
-        return
-
-    if event.message.content.lower() == "yes":
-        consent_management.record_user_consent(event.message.author.id)
-        await event.message.respond("Thank you, your consent has been recorded. I will now use AI to reply to your "
-                                    "messages on the server.")
+async def on_ready(event: hikari.StartedEvent):
+    global gemini_bot
+    gemini_bot = GeminiBot(bot.get_me())
 
 
 @bot.listen()
 async def ping(event: hikari.GuildMessageCreateEvent) -> None:
     """If a non-bot user mentions your bot, forward the message to Gemini."""
 
-    # Do not respond to bots nor webhooks pinging us, only user accounts
-    if not event.is_human:
-        return
+    await gemini_bot.handle_message(event)
 
-    me = bot.get_me()
 
-    if me.id in event.message.user_mentions_ids:
-        if not consent_management.check_user_consent(event.message.author.id):
-            # The response about consent will be visible only to the author of the message.
-            await event.message.respond(_CONSENT_REQUEST, flags=hikari.MessageFlag.EPHEMERAL)
-            return
-        await event.get_channel().trigger_typing()
-        result = await model.generate_content_async(event.message.content)
-        await event.message.respond(result.text[:2000])
+def parse_args():
+    parser = argparse.ArgumentParser(
+        prog="DiscordBot", description="A Discord bot using Gemini."
+    )
+    parser.add_argument(
+        "--accept-tos",
+        action="store_true",
+        help="Use this flag to omit the question about Vertex AI ToS. "
+        "By using this flag, you confirm that you've read and accepted Vertex AI ToS.",
+    )
+    args = parser.parse_args()
+    return args
 
-bot.run()
+
+if __name__ == "__main__":
+    args = parse_args()
+    if not args.accept_tos:
+        response = input(
+            f"Just to make sure, did you read and accept the Vertex AI API Terms of Service ( {VERTEX_TOS} )? [NO/yes] "
+        )
+
+        if response.lower() != "yes":
+            print(
+                "Please make sure you read and accept the ToS before starting this bot."
+            )
+            sys.exit(1)
+    bot.run()

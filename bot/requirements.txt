@@ -4,5 +4,6 @@ hikari
 google-generativeai
 # google-cloud-aiplatform is the library for using Vertex AI API
 google-cloud-aiplatform
+google-cloud-aiplatform[tokenization]
 # To manage configuration files
 platformdirs
