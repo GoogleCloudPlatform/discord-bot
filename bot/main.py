@@ -31,13 +31,20 @@ gemini_bot: GeminiBot
 
 @bot.listen()
 async def on_ready(event: hikari.StartedEvent):
+    """
+    Setting the GeminiBot instance as a global variable, so it can be accessed freely while
+    handling the responses.
+    """
     global gemini_bot
     gemini_bot = GeminiBot(bot.get_me())
 
 
 @bot.listen()
 async def ping(event: hikari.GuildMessageCreateEvent) -> None:
-    """If a non-bot user mentions your bot, forward the message to Gemini."""
+    """
+    Forward all new guild messages to the GeminiBot for handling. This does not include Direct Messages that users can
+    send to your bot.
+    """
 
     await gemini_bot.handle_message(event)
 
