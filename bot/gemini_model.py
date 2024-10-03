@@ -14,13 +14,38 @@ from vertexai.generative_models import (
 )
 from vertexai.preview import tokenization
 
+import discord_cache
+
 VERTEX_TOS = "https://developers.google.com/terms"
-GEMINI_MODEL_NAME = "gemini-1.5-flash-latest"
+GEMINI_MODEL_NAME = "gemini-1.5-flash-002"
 _MAX_HISTORY_TOKEN_SIZE = (
     1000000  # 1M to keep things simple, real limit for Flash is 1,048,576
 )
 
-_tokenizer = tokenization.get_tokenizer_for_model(GEMINI_MODEL_NAME)
+ACCEPTED_MIMES = {
+    "application/pdf",
+    "audio/mpeg",
+    "audio/mp3",
+    "audio/wav",
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "text/plain",
+    "video/mov",
+    "video/mpeg",
+    "video/mp4",
+    "video/mpg",
+    "video/avi",
+    "video/wmv",
+    "video/mpegps",
+    "video/flv",
+}
+
+try:
+    _tokenizer = tokenization.get_tokenizer_for_model(GEMINI_MODEL_NAME)
+except ValueError:
+    # _tokenizer needs to have the count_tokens() method
+    _tokenizer = GenerativeModel(GEMINI_MODEL_NAME)
 
 
 class ChatPart:
@@ -33,6 +58,8 @@ class ChatPart:
     Currently, our code handles only text interactions, however the Part objects can represent images, videos and audio
     files, which will be useful in the future.
     """
+    _model = GenerativeModel(GEMINI_MODEL_NAME)
+
     def __init__(
         self, chat_part: Part, role: Literal["user", "model"], token_count: int
     ):
@@ -47,7 +74,14 @@ class ChatPart:
         return str(self)
 
     @classmethod
-    def from_user_chat_message(cls, message: hikari.Message) -> "ChatPart":
+    def _count_tokens(cls, part: Part) -> int:
+        if hasattr(part, 'text'):
+            return _tokenizer.count_tokens(part).total_tokens
+        # Non-text parts need to call the API to count tokens
+        return cls._model.count_tokens(part).total_tokens
+
+    @classmethod
+    def from_user_chat_message(cls, message: hikari.Message) -> list["ChatPart"]:
         """
         Create a user ChatPart object from hikari.Message.
 
@@ -55,11 +89,20 @@ class ChatPart:
         This method also calculates and saves the token count.
         """
         msg = json.dumps(
-            {"author": message.member.display_name, "content": message.content}
+            {"author": getattr(message.member, 'display_name', False) or message.author.username, "content": message.content}
         )
-        part = Part.from_text(msg)
-        tokens = _tokenizer.count_tokens(part).total_tokens
-        return cls(part, "user", tokens)
+        text_part = Part.from_text(msg)
+        parts = [(text_part, _tokenizer.count_tokens(text_part).total_tokens)]
+
+        for a in message.attachments:
+            if a.media_type not in ACCEPTED_MIMES:
+                part = Part.from_text(f"Here user uploaded a file in unsupported {a.media_type} type.")
+            else:
+                data = discord_cache.get_from_cache(a.url)
+                part = Part.from_data(data, a.media_type)
+            parts.append((part, cls._count_tokens(part)))
+
+        return [cls(part, "user", tokens) for part, tokens in parts]
 
     @classmethod
     def from_bot_chat_message(cls, message: hikari.Message) -> "ChatPart":
@@ -98,7 +141,7 @@ class ChatHistory:
         """
         Create a new ChatPart object and append it to the chat history.
         """
-        self._history.append(ChatPart.from_user_chat_message(message))
+        self._history.extend(ChatPart.from_user_chat_message(message))
 
     async def load_history(self, channel: hikari.GuildTextChannel, bot_id: int) -> None:
         """
@@ -114,7 +157,12 @@ class ChatHistory:
         guild = channel.get_guild()
         member_cache = {}
         tokens = 0
+        messages = 0
         async for message in channel.fetch_history():
+            messages += 1
+            if messages > 100:
+                # To speed up the starting process, just read only the last 100 messages
+                break
             if message.author.id not in member_cache:
                 member_cache[message.author.id] = guild.get_member(message.author.id)
             message.member = member_cache[message.author.id]
@@ -123,7 +171,7 @@ class ChatHistory:
                     ChatPart.from_bot_chat_message(message)
                 )
             else:
-                self._history.appendleft(ChatPart.from_user_chat_message(message))
+                self._history.extendleft(reversed(ChatPart.from_user_chat_message(message)))
             tokens += self._history[0].token_count
             if tokens > _MAX_HISTORY_TOKEN_SIZE:
                 break
@@ -189,6 +237,12 @@ class ChatHistory:
 
         content = self._build_content()
 
+        # for c in content:
+        #     print(f"Role: {c.role}")
+        #     for p in c.parts:
+        #         p_str = str(p)[:100]
+        #         print(f"  Part {p_str}...")
+
         response = await model.generate_content_async(content)
 
         self._history.append(ChatPart.from_ai_reply(response))
@@ -207,7 +261,7 @@ class GeminiBot:
         self.me = me
         self.model = GenerativeModel(
             model_name=GEMINI_MODEL_NAME,
-            generation_config=GenerationConfig(temperature=1, max_output_tokens=1800),
+            generation_config=GenerationConfig(temperature=0.1, max_output_tokens=1800),
             system_instruction=f"You are a Discord bot named GeminiBot or <@{self.me.id}>."
             "Your task is to provide useful information to users interacting with you. "
             "You should be positive, cheerful and polite. "

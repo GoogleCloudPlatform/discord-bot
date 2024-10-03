@@ -7,3 +7,4 @@ google-cloud-aiplatform
 google-cloud-aiplatform[tokenization]
 # To manage configuration files
 platformdirs
+requests
