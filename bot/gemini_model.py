@@ -74,13 +74,26 @@ def call_get_current_time(call_part: Part) -> (str, None):
     assert call_part.function_call.name == "get_current_time"
     return get_current_time(call_part.function_call.args["timezone"]), None
 
+def noop() -> str:
+    """
+    Do nothing, just allows you to normally reply to users, but in the function calling mode.
+
+    :return:
+        Nothing of value, not important.
+    """
+    return "Nothing happens"
+
+def call_noop(call_part: Part) -> (str, None):
+    return noop(), None
+
 TOOL_CALLING = {
     'get_current_time': call_get_current_time,
     'generate_image': call_generate_image,
+    'noop': call_noop,
 }
 
 TOOLS = [
-    Tool([generate_image_tool, FunctionDeclaration.from_func(get_current_time)]),
+    Tool([generate_image_tool, FunctionDeclaration.from_func(get_current_time), FunctionDeclaration.from_func(noop)]),
 ]
 
 class ChatPart:
@@ -173,6 +186,16 @@ class ChatPart:
         else:
             tokens = _tokenizer.count_tokens(part).total_tokens
         return cls(part, "model", tokens)
+
+    @classmethod
+    def from_raw_part(cls, part: Part) -> "ChatPart":
+        """
+        Create a model ChatPart object from a raw Part.
+
+        Stores the whole part and assigns the `role` as "model".
+        Saves the token count using model call.
+        """
+        return cls(part, "model", cls._count_tokens(part))
 
     @classmethod
     def from_bytes(cls, data: bytes, mime_type: str) -> "ChatPart":
@@ -283,7 +306,7 @@ class ChatHistory:
 
         return list(contents)
 
-    async def trigger_answer(self, model: GenerativeModel) -> (list[str], list[hikari.Bytes]):
+    async def trigger_answer(self, model: GenerativeModel, force_tool_use: bool=False) -> (list[str], list[hikari.Bytes]):
         """
         Uses AI to generate answer to the current chat history.
 
@@ -302,9 +325,11 @@ class ChatHistory:
         #         print("  Part: ", str(p)[:100])
 
         # print(TOOLS)
-        # response = await model.generate_content_async(content, tools=TOOLS, tool_config=ToolConfig(
-        #     function_calling_config=ToolConfig.FunctionCallingConfig(mode=ToolConfig.FunctionCallingConfig.Mode.ANY)))
-        response = await model.generate_content_async(content, tools=TOOLS)
+        if force_tool_use:
+            response = await model.generate_content_async(content, tools=TOOLS, tool_config=ToolConfig(
+                function_calling_config=ToolConfig.FunctionCallingConfig(mode=ToolConfig.FunctionCallingConfig.Mode.ANY)))
+        else:
+            response = await model.generate_content_async(content, tools=TOOLS)
 
         print(response)
 
@@ -322,21 +347,24 @@ class ChatHistory:
                     discord_text_response.append(part.text)
 
             for part in response.candidates[0].content.parts:
-                print(part)
                 if getattr(part, 'function_call', None):
+                    print(part)
+                    # self._history.append(ChatPart.from_raw_part(part))
                     call_requests_parts.append(part)
                     result, attachment = TOOL_CALLING[part.function_call.name](part)
                     if attachment:
                         discord_attachments.append(attachment)
-                    call_results_parts.append(Part.from_function_response(name=part.function_call.name, response={'content': result}))
+                    response_part = Part.from_function_response(name=part.function_call.name, response={'content': result})
+                    # self._history.append(ChatPart.from_raw_part(response_part))
+                    call_results_parts.append(response_part)
 
             assert len(call_results_parts) > 0
             content.append(Content(parts=call_requests_parts, role="model")) # The Gemini request for function calls, all of them
             content.append(Content(parts=call_results_parts))
-            for c in content[-3:]:
-                print("Role: ", c.role)
-                for p in c.parts:
-                    print("  Part: ", str(p)[:200])
+            # for c in content[-3:]:
+            #     print("Role: ", c.role)
+            #     for p in c.parts:
+            #         print("  Part: ", str(p)[:200])
             # Sending only the original message, request for function call and function call response
             # To allow for very long function call responses
             response = await model.generate_content_async(content[-3:], tools=TOOLS)
@@ -370,13 +398,14 @@ class GeminiBot:
         self.me = me
         self.model = GenerativeModel(
             model_name=GEMINI_MODEL_NAME,
-            generation_config=GenerationConfig(temperature=0.1, max_output_tokens=1800),
-            system_instruction=f"You are a Discord bot named GeminiBot."
+            generation_config=GenerationConfig(temperature=0, max_output_tokens=1800),
+            system_instruction=f"You are a Discord bot named GeminiBot or <@{self.me.id}>."
             "Your task is to provide useful information to users interacting with you. "
             "You should be positive, cheerful and polite. "
             "Feel free to use the default Discord emojis. "
             "You are provided with chat history in JSON format, but your answers should be regular text. "
-            "Always reply to the last message in the chat history.",
+            "Always reply to the last message in the chat history. "
+            "Use the tools available to you to fulfill user requests. Don't hesitate to make the function calls!",
             tools=TOOLS,
         )
         self.memory = defaultdict(ChatHistory)
@@ -404,9 +433,16 @@ class GeminiBot:
             # Reply only when mentioned in the message.
             return
 
+        # Check if the users wants to force usage of tools
+        force_tools_use =  message.content.startswith("!")
+
         # The bot has been pinged, we need to reply
         await event.get_channel().trigger_typing()
-        text_responses, attachments =  await self.memory[message.channel_id].trigger_answer(self.model)
+        try:
+            text_responses, attachments =  await self.memory[message.channel_id].trigger_answer(self.model, force_tools_use)
+        except Exception as e:
+            await event.message.respond("Sorry, there was an error processing your request :(")
+            raise e
         for text_response in text_responses[:-1]:
             await event.message.respond(text_response[:2000])
         await event.message.respond(text_responses[-1][:2000], attachments=attachments)

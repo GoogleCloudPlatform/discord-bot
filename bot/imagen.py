@@ -1,7 +1,7 @@
 from vertexai.generative_models import FunctionDeclaration, Part
 from vertexai.preview.vision_models import ImageGenerationModel, GeneratedImage
 
-generation_model = ImageGenerationModel.from_pretrained("imagen-3.0-generate-001")
+generation_model = ImageGenerationModel.from_pretrained("imagen-3.0-fast-generate-001")
 
 def generate_image(prompt: str) -> GeneratedImage:
     """
