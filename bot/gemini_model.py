@@ -1,12 +1,13 @@
-import dataclasses
+import datetime
 import json
-import sys
 import tempfile
 from collections import defaultdict, deque
-from typing import Literal, Any
-import datetime
-import pytz
+import time
+from typing import Literal
+
 import hikari
+import pytz
+from google.api_core.exceptions import InvalidArgument
 from hikari import OwnUser
 from vertexai.generative_models import (
     GenerationResponse,
@@ -18,9 +19,8 @@ from vertexai.generative_models import (
 from vertexai.preview import tokenization
 from vertexai.vision_models import GeneratedImage
 
-from imagen import generate_image_tool, call_generate_image
-
 import discord_cache
+from imagen import generate_image_tool, call_generate_image
 
 VERTEX_TOS = "https://developers.google.com/terms"
 GEMINI_MODEL_NAME = "gemini-1.5-pro-002"
@@ -81,6 +81,7 @@ def noop() -> str:
     :return:
         Nothing of value, not important.
     """
+    time.sleep(0.5)
     return "Nothing happens"
 
 def call_noop(call_part: Part) -> (str, None):
@@ -188,14 +189,14 @@ class ChatPart:
         return cls(part, "model", tokens)
 
     @classmethod
-    def from_raw_part(cls, part: Part) -> "ChatPart":
+    def from_raw_part(cls, part: Part, role: str="model") -> "ChatPart":
         """
         Create a model ChatPart object from a raw Part.
 
         Stores the whole part and assigns the `role` as "model".
         Saves the token count using model call.
         """
-        return cls(part, "model", cls._count_tokens(part))
+        return cls(part, role, cls._count_tokens(part))
 
     @classmethod
     def from_bytes(cls, data: bytes, mime_type: str) -> "ChatPart":
@@ -267,6 +268,7 @@ class ChatHistory:
         "user" - in our case, we combine all user messages into single Content object, with proper attribution, so that
         Gemini can recognize who said what. Model Content objects are sent as regular text.
         """
+        # Buffer keeps tuples of (part, role)
         buffer = deque()
         contents = deque()
         tokens = 0
@@ -274,17 +276,23 @@ class ChatHistory:
 
         for part in reversed(self._history):
             parts_count += 1
-            if part.role == "user":
-                buffer.appendleft(part.part)
-                tokens += part.token_count
-            elif part.role == "model":
-                if buffer:
-                    user_content = Content(role="user", parts=list(buffer))
-                    contents.appendleft(user_content)
-                    buffer.clear()
-                model_content = Content(role="model", parts=[part.part])
-                contents.appendleft(model_content)
-                tokens += part.token_count
+            # if part.role == "user":
+            #     buffer.appendleft(part.part)
+            #     tokens += part.token_count
+            # elif part.role == "model":
+            #     if buffer:
+            #         user_content = Content(role="user", parts=list(buffer))
+            #         contents.appendleft(user_content)
+            #         buffer.clear()
+            #     model_content = Content(role="model", parts=[part.part])
+            #     contents.appendleft(model_content)
+            #     tokens += part.token_count
+            if buffer and buffer[0][1] != part.role:
+                content = Content(role=buffer[0][1], parts=list(b[0] for b in buffer))
+                contents.appendleft(content)
+                buffer.clear()
+            buffer.appendleft((part.part, part.role))
+            tokens += part.token_count
 
             if tokens > _MAX_HISTORY_TOKEN_SIZE:
                 print("Memory full, will purge now.")
@@ -292,7 +300,7 @@ class ChatHistory:
 
         # We fit whole _history in the contents, no need to clear memory
         if buffer:
-            user_content = Content(role="user", parts=list(buffer))
+            user_content = Content(role=buffer[0][1], parts=list(b[0] for b in buffer))
             contents.appendleft(user_content)
             return list(contents)
 
@@ -335,10 +343,10 @@ class ChatHistory:
 
         discord_text_response = []
         discord_attachments = []
-        call_results_parts = []
-        call_requests_parts = []
 
         while any(part.function_call for part in response.candidates[0].content.parts):
+            call_results_parts = []
+            call_requests_parts = []
             # Check if Gemini wants to call one of its TOOLS. With parallel function execution, there can be multiple parts
             # calling functions.
             for part in response.candidates[0].content.parts:
@@ -347,27 +355,38 @@ class ChatHistory:
                     discord_text_response.append(part.text)
 
             for part in response.candidates[0].content.parts:
-                if getattr(part, 'function_call', None):
-                    print(part)
-                    # self._history.append(ChatPart.from_raw_part(part))
-                    call_requests_parts.append(part)
-                    result, attachment = TOOL_CALLING[part.function_call.name](part)
-                    if attachment:
-                        discord_attachments.append(attachment)
-                    response_part = Part.from_function_response(name=part.function_call.name, response={'content': result})
-                    # self._history.append(ChatPart.from_raw_part(response_part))
-                    call_results_parts.append(response_part)
+                if not getattr(part, 'function_call', None):
+                    continue
+                print(part)
+                self._history.append(ChatPart.from_raw_part(part))
+                call_requests_parts.append(part)
+                result, attachment = TOOL_CALLING[part.function_call.name](part)
+                if attachment:
+                    discord_attachments.append(attachment)
+                response_part = Part.from_function_response(name=part.function_call.name, response={'content': result})
+                # self._history.append(ChatPart.from_raw_part(response_part))
+                call_results_parts.append(response_part)
+
+            for response_part in call_results_parts:
+                self._history.append(ChatPart.from_raw_part(response_part, role="user"))
+
 
             assert len(call_results_parts) > 0
             content.append(Content(parts=call_requests_parts, role="model")) # The Gemini request for function calls, all of them
             content.append(Content(parts=call_results_parts))
-            # for c in content[-3:]:
-            #     print("Role: ", c.role)
-            #     for p in c.parts:
-            #         print("  Part: ", str(p)[:200])
+
             # Sending only the original message, request for function call and function call response
             # To allow for very long function call responses
-            response = await model.generate_content_async(content[-3:], tools=TOOLS)
+            try:
+                response = await model.generate_content_async(content[-3:], tools=TOOLS)
+            except InvalidArgument:
+                # Print what went wrong
+                print("################################################")
+                for c in content[-3:]:
+                    print("Role: ", c.role)
+                    for p in c.parts:
+                        print("  Part: ", str(p)[:200])
+                print("################################################")
             print("Responseee:", response)
 
         self._history.append(ChatPart.from_ai_reply(response))
