@@ -1,12 +1,9 @@
-import datetime
 import json
 import tempfile
 from collections import defaultdict, deque
-import time
 from typing import Literal
 
 import hikari
-import pytz
 from google.api_core.exceptions import InvalidArgument
 from hikari import OwnUser
 from vertexai.generative_models import (
@@ -14,13 +11,14 @@ from vertexai.generative_models import (
     Part,
     Content,
     GenerativeModel,
-    GenerationConfig, Tool, FunctionDeclaration, ToolConfig,
+    GenerationConfig,
+    ToolConfig,
 )
 from vertexai.preview import tokenization
 from vertexai.vision_models import GeneratedImage
 
 import discord_cache
-from imagen import generate_image_tool, call_generate_image
+from gemini_tools import TOOL_CALLING, TOOLS
 
 VERTEX_TOS = "https://developers.google.com/terms"
 GEMINI_MODEL_NAME = "gemini-1.5-pro-002"
@@ -54,49 +52,6 @@ except ValueError:
     _tokenizer = GenerativeModel(GEMINI_MODEL_NAME)
 
 
-
-
-def get_current_time(timezone: str) -> str:
-    """
-    Get the current time in a specified timezone.
-
-    Args:
-        timezone: The timezone for which you want to check the time. For example: Europe/Warsaw.
-
-    Returns:
-        Current time in a given timezone, formatted in the YYYY-MM-DD HH:MM:SS format.
-    """
-    tz = pytz.timezone(timezone)
-    tz_now = datetime.datetime.now(tz)
-    return tz_now.strftime("%Y-%m-%d %H:%M:%S")
-
-def call_get_current_time(call_part: Part) -> (str, None):
-    assert call_part.function_call.name == "get_current_time"
-    return get_current_time(call_part.function_call.args["timezone"]), None
-
-def noop() -> str:
-    """
-    Do nothing, just allows you to normally reply to users, but in the function calling mode.
-
-    :return:
-        Nothing of value, not important.
-    """
-    time.sleep(0.5)
-    return "Nothing happens"
-
-def call_noop(call_part: Part) -> (str, None):
-    return noop(), None
-
-TOOL_CALLING = {
-    'get_current_time': call_get_current_time,
-    'generate_image': call_generate_image,
-    'noop': call_noop,
-}
-
-TOOLS = [
-    Tool([generate_image_tool, FunctionDeclaration.from_func(get_current_time), FunctionDeclaration.from_func(noop)]),
-]
-
 class ChatPart:
     """
     ChatPart is used to internally store the history of communication in various Discord channels.
@@ -107,6 +62,7 @@ class ChatPart:
     Currently, our code handles only text interactions, however the Part objects can represent images, videos and audio
     files, which will be useful in the future.
     """
+
     _model = GenerativeModel(GEMINI_MODEL_NAME)
 
     def __init__(
@@ -124,7 +80,7 @@ class ChatPart:
 
     @classmethod
     def _count_tokens(cls, part: Part) -> int:
-        if hasattr(part, 'text'):
+        if hasattr(part, "text"):
             return _tokenizer.count_tokens(part).total_tokens
         # Non-text parts need to call the API to count tokens
         return cls._model.count_tokens(part).total_tokens
@@ -138,14 +94,20 @@ class ChatPart:
         This method also calculates and saves the token count.
         """
         msg = json.dumps(
-            {"author": getattr(message.member, 'display_name', False) or message.author.username, "content": message.content}
+            {
+                "author": getattr(message.member, "display_name", False)
+                or message.author.username,
+                "content": message.content,
+            }
         )
         text_part = Part.from_text(msg)
         parts = [(text_part, _tokenizer.count_tokens(text_part).total_tokens)]
 
         for a in message.attachments:
             if a.media_type not in ACCEPTED_MIMES:
-                part = Part.from_text(f"Here user uploaded a file in unsupported {a.media_type} type.")
+                part = Part.from_text(
+                    f"Here user uploaded a file in unsupported {a.media_type} type."
+                )
             else:
                 data = discord_cache.get_from_cache(a.url)
                 part = Part.from_data(data, a.media_type)
@@ -189,7 +151,9 @@ class ChatPart:
         return cls(part, "model", tokens)
 
     @classmethod
-    def from_raw_part(cls, part: Part, role: str="model") -> "ChatPart":
+    def from_raw_part(
+        cls, part: Part, role: Literal["user", "model"] = "model"
+    ) -> "ChatPart":
         """
         Create a model ChatPart object from a raw Part.
 
@@ -212,9 +176,10 @@ class ChatPart:
 
 class ChatHistory:
     """
-    Object of this class keep track of the chat history in a single Discord channel by
+    Object of this class keeps track of the chat history in a single Discord channel by
     storing a deque of ChatPart objects.
     """
+
     def __init__(self):
         self._history: deque[ChatPart] = deque()
 
@@ -241,8 +206,8 @@ class ChatHistory:
         messages = 0
         async for message in channel.fetch_history():
             messages += 1
-            if messages > 100:
-                # To speed up the starting process, just read only the last 100 messages
+            if messages > 50:
+                # To speed up the starting process, just read only the last 50 messages
                 break
             if message.author.id not in member_cache:
                 member_cache[message.author.id] = guild.get_member(message.author.id)
@@ -252,7 +217,9 @@ class ChatHistory:
                     reversed(ChatPart.from_bot_chat_message(message))
                 )
             else:
-                self._history.extendleft(reversed(ChatPart.from_user_chat_message(message)))
+                self._history.extendleft(
+                    reversed(ChatPart.from_user_chat_message(message))
+                )
             tokens += self._history[0].token_count
             if tokens > _MAX_HISTORY_TOKEN_SIZE:
                 break
@@ -276,17 +243,6 @@ class ChatHistory:
 
         for part in reversed(self._history):
             parts_count += 1
-            # if part.role == "user":
-            #     buffer.appendleft(part.part)
-            #     tokens += part.token_count
-            # elif part.role == "model":
-            #     if buffer:
-            #         user_content = Content(role="user", parts=list(buffer))
-            #         contents.appendleft(user_content)
-            #         buffer.clear()
-            #     model_content = Content(role="model", parts=[part.part])
-            #     contents.appendleft(model_content)
-            #     tokens += part.token_count
             if buffer and buffer[0][1] != part.role:
                 content = Content(role=buffer[0][1], parts=list(b[0] for b in buffer))
                 contents.appendleft(content)
@@ -302,7 +258,6 @@ class ChatHistory:
         if buffer:
             user_content = Content(role=buffer[0][1], parts=list(b[0] for b in buffer))
             contents.appendleft(user_content)
-            return list(contents)
 
         # We need to forget the tail of history, so we don't waste memory
         for _ in range(len(self._history) - parts_count):
@@ -314,9 +269,12 @@ class ChatHistory:
 
         return list(contents)
 
-    async def trigger_answer(self, model: GenerativeModel, force_tool_use: bool=False) -> (list[str], list[hikari.Bytes]):
+    async def trigger_answer(
+        self, model: GenerativeModel, force_tool_use: bool = False
+    ) -> (list[str], list[hikari.Bytes]):
         """
-        Uses AI to generate answer to the current chat history.
+        Uses AI to generate answer to the current chat history. Will handle function calling if the model
+        requests functions to be called.
 
         Note: The last message in the chat history has to be from a user.
         """
@@ -327,19 +285,18 @@ class ChatHistory:
 
         content = self._build_content()
 
-        # for c in content:
-        #     print("Role: ", c.role)
-        #     for p in c.parts:
-        #         print("  Part: ", str(p)[:100])
-
-        # print(TOOLS)
         if force_tool_use:
-            response = await model.generate_content_async(content, tools=TOOLS, tool_config=ToolConfig(
-                function_calling_config=ToolConfig.FunctionCallingConfig(mode=ToolConfig.FunctionCallingConfig.Mode.ANY)))
+            response = await model.generate_content_async(
+                content,
+                tools=TOOLS,
+                tool_config=ToolConfig(
+                    function_calling_config=ToolConfig.FunctionCallingConfig(
+                        mode=ToolConfig.FunctionCallingConfig.Mode.ANY
+                    )
+                ),
+            )
         else:
             response = await model.generate_content_async(content, tools=TOOLS)
-
-        print(response)
 
         discord_text_response = []
         discord_attachments = []
@@ -350,44 +307,47 @@ class ChatHistory:
             # Check if Gemini wants to call one of its TOOLS. With parallel function execution, there can be multiple parts
             # calling functions.
             for part in response.candidates[0].content.parts:
-                if getattr(part, 'text', None):
+                if getattr(part, "text", None):
                     self._history.append(ChatPart.from_ai_reply(part))
                     discord_text_response.append(part.text)
 
             for part in response.candidates[0].content.parts:
-                if not getattr(part, 'function_call', None):
+                if not getattr(part, "function_call", None):
                     continue
-                print(part)
+
                 self._history.append(ChatPart.from_raw_part(part))
                 call_requests_parts.append(part)
                 result, attachment = TOOL_CALLING[part.function_call.name](part)
                 if attachment:
                     discord_attachments.append(attachment)
-                response_part = Part.from_function_response(name=part.function_call.name, response={'content': result})
+                response_part = Part.from_function_response(
+                    name=part.function_call.name, response={"content": result}
+                )
                 # self._history.append(ChatPart.from_raw_part(response_part))
                 call_results_parts.append(response_part)
 
             for response_part in call_results_parts:
                 self._history.append(ChatPart.from_raw_part(response_part, role="user"))
 
-
             assert len(call_results_parts) > 0
-            content.append(Content(parts=call_requests_parts, role="model")) # The Gemini request for function calls, all of them
+            content.append(
+                Content(parts=call_requests_parts, role="model")
+            )  # The Gemini request for function calls, all of them
             content.append(Content(parts=call_results_parts))
 
             # Sending only the original message, request for function call and function call response
             # To allow for very long function call responses
             try:
-                response = await model.generate_content_async(content[-3:], tools=TOOLS)
-            except InvalidArgument:
-                # Print what went wrong
-                print("################################################")
-                for c in content[-3:]:
+                response = await model.generate_content_async(content, tools=TOOLS)
+            except InvalidArgument as e:
+                print("The ending of content that caused the issue:")
+                print("Start ##########################################")
+                for c in content[-6:]:
                     print("Role: ", c.role)
                     for p in c.parts:
                         print("  Part: ", str(p)[:200])
                 print("################################################")
-            print("Responseee:", response)
+                raise e
 
         self._history.append(ChatPart.from_ai_reply(response))
         discord_text_response.append(response.text)
@@ -398,10 +358,11 @@ class ChatHistory:
             with tempfile.NamedTemporaryFile(suffix=".png") as temp:
                 attachment.save(temp.name)
                 with open(temp.name, "rb") as image:
-                    bytes = image.read()
-            discord_byte_attachments.append(hikari.Bytes(bytes, "attachment.png", "image/png"))
-            self._history.append(ChatPart.from_bytes(bytes, attachment._mime_type))
-
+                    img_bytes = image.read()
+            discord_byte_attachments.append(
+                hikari.Bytes(img_bytes, "attachment.png", "image/png")
+            )
+            self._history.append(ChatPart.from_bytes(img_bytes, attachment._mime_type))
 
         return discord_text_response, discord_byte_attachments
 
@@ -413,6 +374,7 @@ class GeminiBot:
     It keeps track of its own identity, Gemini model configuration and chat history for all the channels it
     interacted with.
     """
+
     def __init__(self, me: OwnUser):
         self.me = me
         self.model = GenerativeModel(
@@ -453,16 +415,19 @@ class GeminiBot:
             return
 
         # Check if the users wants to force usage of tools
-        force_tools_use =  message.content.startswith("!")
+        force_tools_use = message.content.startswith("!")
 
         # The bot has been pinged, we need to reply
         await event.get_channel().trigger_typing()
         try:
-            text_responses, attachments =  await self.memory[message.channel_id].trigger_answer(self.model, force_tools_use)
+            text_responses, attachments = await self.memory[
+                message.channel_id
+            ].trigger_answer(self.model, force_tools_use)
         except Exception as e:
-            await event.message.respond("Sorry, there was an error processing your request :(")
+            await event.message.respond(
+                "Sorry, there was an error processing your request :("
+            )
             raise e
         for text_response in text_responses[:-1]:
             await event.message.respond(text_response[:2000])
         await event.message.respond(text_responses[-1][:2000], attachments=attachments)
-
