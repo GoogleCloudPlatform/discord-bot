@@ -49,12 +49,13 @@ TOOL_CALLING = {
     "noop": call_noop,
 }
 
-TOOLS = [
-    Tool(
-        [
-            generate_image_tool,
-            FunctionDeclaration.from_func(get_current_time),
-            FunctionDeclaration.from_func(noop),
-        ]
-    ),
+_TOOLS_NO_NOOP = [
+    generate_image_tool,
+    FunctionDeclaration.from_func(get_current_time),
 ]
+
+_TOOLS_ALL = _TOOLS_NO_NOOP + [FunctionDeclaration.from_func(noop)]
+
+TOOLS_NO_NOOP = [Tool(_TOOLS_NO_NOOP)]
+
+TOOLS = [Tool(_TOOLS_ALL)]

@@ -18,7 +18,7 @@ from vertexai.preview import tokenization
 from vertexai.vision_models import GeneratedImage
 
 import discord_cache
-from gemini_tools import TOOL_CALLING, TOOLS
+from gemini_tools import TOOL_CALLING, TOOLS, TOOLS_NO_NOOP
 
 VERTEX_TOS = "https://developers.google.com/terms"
 GEMINI_MODEL_NAME = "gemini-1.5-pro-002"
@@ -296,7 +296,7 @@ class ChatHistory:
                 ),
             )
         else:
-            response = await model.generate_content_async(content, tools=TOOLS)
+            response = await model.generate_content_async(content, tools=TOOLS_NO_NOOP)
 
         discord_text_response = []
         discord_attachments = []

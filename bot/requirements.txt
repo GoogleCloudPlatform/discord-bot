@@ -9,3 +9,4 @@ google-cloud-aiplatform[tokenization]
 platformdirs
 requests
 pytz
+Pillow
