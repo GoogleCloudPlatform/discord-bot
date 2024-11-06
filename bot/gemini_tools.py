@@ -59,3 +59,5 @@ _TOOLS_ALL = _TOOLS_NO_NOOP + [FunctionDeclaration.from_func(noop)]
 TOOLS_NO_NOOP = [Tool(_TOOLS_NO_NOOP)]
 
 TOOLS = [Tool(_TOOLS_ALL)]
+
+IMG_TOOLS_NOOP = [Tool([generate_image_tool, FunctionDeclaration.from_func(noop)])]

@@ -18,7 +18,7 @@ from vertexai.preview import tokenization
 from vertexai.vision_models import GeneratedImage
 
 import discord_cache
-from gemini_tools import TOOL_CALLING, TOOLS, TOOLS_NO_NOOP
+from gemini_tools import TOOL_CALLING, TOOLS, TOOLS_NO_NOOP, IMG_TOOLS_NOOP
 
 VERTEX_TOS = "https://developers.google.com/terms"
 GEMINI_MODEL_NAME = "gemini-1.5-pro-002"
@@ -270,7 +270,7 @@ class ChatHistory:
         return list(contents)
 
     async def trigger_answer(
-        self, model: GenerativeModel, force_tool_use: bool = False
+        self, model: GenerativeModel, force_tool_use: bool = False, force_image_generation: bool = False
     ) -> (list[str], list[hikari.Bytes]):
         """
         Uses AI to generate answer to the current chat history. Will handle function calling if the model
@@ -289,6 +289,16 @@ class ChatHistory:
             response = await model.generate_content_async(
                 content,
                 tools=TOOLS,
+                tool_config=ToolConfig(
+                    function_calling_config=ToolConfig.FunctionCallingConfig(
+                        mode=ToolConfig.FunctionCallingConfig.Mode.ANY
+                    )
+                ),
+            )
+        elif force_image_generation:
+            response = await model.generate_content_async(
+                content,
+                tools=IMG_TOOLS_NOOP,
                 tool_config=ToolConfig(
                     function_calling_config=ToolConfig.FunctionCallingConfig(
                         mode=ToolConfig.FunctionCallingConfig.Mode.ANY
@@ -386,6 +396,8 @@ class GeminiBot:
             "Feel free to use the default Discord emojis. "
             "You are provided with chat history in JSON format, but your answers should be regular text. "
             "Always reply to the last message in the chat history. "
+            "You will be talking to users at Google Cloud Summit 2024 in Warsaw. "
+            "Lecture about you will happen in BARCELONA room at 16:05 local time. "
             "Use the tools available to you to fulfill user requests. Don't hesitate to make the function calls!",
             tools=TOOLS,
         )
@@ -417,12 +429,19 @@ class GeminiBot:
         # Check if the users wants to force usage of tools
         force_tools_use = message.content.startswith("!")
 
+
+        force_image_use = bool(
+            set(message.content.split()).intersection(
+                {"generate", "draw", "paint", "create", "sketch", "make"}
+            )
+       )
+
         # The bot has been pinged, we need to reply
         await event.get_channel().trigger_typing()
         try:
             text_responses, attachments = await self.memory[
                 message.channel_id
-            ].trigger_answer(self.model, force_tools_use)
+            ].trigger_answer(self.model, force_tools_use, force_image_use)
         except Exception as e:
             await event.message.respond(
                 "Sorry, there was an error processing your request :("
