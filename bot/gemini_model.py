@@ -1,36 +1,33 @@
 import json
-import tempfile
+import logging
+import time
 from collections import defaultdict, deque
 from typing import Literal
 
+import google.auth
 import hikari
-from google.api_core.exceptions import InvalidArgument
+from google import genai
+from google.genai.types import Part, Content, GenerateContentConfig, GenerateContentResponse, Tool, GoogleSearch
 from hikari import OwnUser
-from vertexai.generative_models import (
-    GenerationResponse,
-    Part,
-    Content,
-    GenerativeModel,
-    GenerationConfig,
-    ToolConfig,
-)
-from vertexai.preview import tokenization
-from vertexai.vision_models import GeneratedImage
 
 import discord_cache
-from gemini_tools import TOOL_CALLING, TOOLS, TOOLS_NO_NOOP
+
 
 VERTEX_TOS = "https://developers.google.com/terms"
-GEMINI_MODEL_NAME = "gemini-1.5-pro-002"
+GEMINI_MODEL_NAME = "gemini-2.0-flash-exp"
+# GEMINI_MODEL_NAME = "gemini-1.5-flash-002"
 _MAX_HISTORY_TOKEN_SIZE = (
-    1000000  # 1M to keep things simple, real limit for Flash is 1,048,576
+    1000000  # 1M to keep things simple, real limit is 1,048,576
 )
+
+_LOGGER = logging.getLogger("bot.gemini")
 
 ACCEPTED_MIMES = {
     "application/pdf",
     "audio/mpeg",
     "audio/mp3",
     "audio/wav",
+    "image/gif",
     "image/png",
     "image/jpeg",
     "image/webp",
@@ -45,12 +42,20 @@ ACCEPTED_MIMES = {
     "video/flv",
 }
 
-try:
-    _tokenizer = tokenization.get_tokenizer_for_model(GEMINI_MODEL_NAME)
-except ValueError:
-    # _tokenizer needs to have the count_tokens() method
-    _tokenizer = GenerativeModel(GEMINI_MODEL_NAME)
-
+_client = genai.Client(vertexai=True, project=google.auth.default()[1], location='us-central1')
+_gen_config = GenerateContentConfig(
+    temperature=0,
+    candidate_count=1,
+    max_output_tokens=1800,
+    system_instruction=f"You are a Discord bot named GeminiBot."
+        "Your task is to provide useful information to users interacting with you. "
+        "You should be positive, cheerful and polite. "
+        "Feel free to use the default Discord emojis. "
+        "You are provided with chat history in JSON format, but your answers should be regular text. "
+        "Always reply to the last message in the chat history. ",
+    tools=[Tool(google_search=GoogleSearch())], # for Gemini 2
+    response_modalities=["TEXT"]
+)
 
 class ChatPart:
     """
@@ -62,8 +67,6 @@ class ChatPart:
     Currently, our code handles only text interactions, however the Part objects can represent images, videos and audio
     files, which will be useful in the future.
     """
-
-    _model = GenerativeModel(GEMINI_MODEL_NAME)
 
     def __init__(
         self, chat_part: Part, role: Literal["user", "model"], token_count: int
@@ -78,12 +81,23 @@ class ChatPart:
     def __repr__(self):
         return str(self)
 
-    @classmethod
-    def _count_tokens(cls, part: Part) -> int:
-        if hasattr(part, "text"):
-            return _tokenizer.count_tokens(part).total_tokens
-        # Non-text parts need to call the API to count tokens
-        return cls._model.count_tokens(part).total_tokens
+    @staticmethod
+    def _count_tokens(part: Part) -> int:
+        if hasattr(part, "text") and part.text is not None:
+            return int(len(part.text)*0.3)
+        if hasattr(part, "inline_data") and part.inline_data is not None:
+            if part.inline_data.mime_type.startswith("image"):
+                return 258
+            elif part.inline_data.mime_type.startswith("video"):
+                return int(len(part.inline_data.data) / 1000)
+            elif part.inline_data.mime_type.startswith("audio"):
+                return int(len(part.inline_data.data) / 800)
+        # 1000 bytes per token video, 800 bytes per token for audio - those are rough estimates
+        _LOGGER.debug(f"Counting tokens for {part}"[:200])
+        start = time.time()
+        count = _client.models.count_tokens(model=GEMINI_MODEL_NAME, contents=part).total_tokens
+        _LOGGER.debug(f"Counted tokens for {len(part.inline_data.data)} bytes in {time.time() - start}s with token count: {count}")
+        return count
 
     @classmethod
     def from_user_chat_message(cls, message: hikari.Message) -> list["ChatPart"]:
@@ -101,7 +115,7 @@ class ChatPart:
             }
         )
         text_part = Part.from_text(msg)
-        parts = [(text_part, _tokenizer.count_tokens(text_part).total_tokens)]
+        parts = [(text_part, cls._count_tokens(text_part))]
 
         for a in message.attachments:
             if a.media_type not in ACCEPTED_MIMES:
@@ -110,7 +124,7 @@ class ChatPart:
                 )
             else:
                 data = discord_cache.get_from_cache(a.url)
-                part = Part.from_data(data, a.media_type)
+                part = Part.from_bytes(data, a.media_type)
             parts.append((part, cls._count_tokens(part)))
 
         return [cls(part, "user", tokens) for part, tokens in parts]
@@ -124,19 +138,19 @@ class ChatPart:
         This method also calculates and saves the token count.
         """
         part = Part.from_text(message.content)
-        tokens = _tokenizer.count_tokens(part).total_tokens
+        tokens = cls._count_tokens(part)
 
         parts = [(part, tokens)]
 
         for a in message.attachments:
             data = discord_cache.get_from_cache(a.url)
-            part = Part.from_data(data, a.media_type)
+            part = Part.from_bytes(data, a.media_type)
             parts.append((part, cls._count_tokens(part)))
 
         return [cls(part, "model", tokens) for part, tokens in parts]
 
     @classmethod
-    def from_ai_reply(cls, response: GenerationResponse | Part) -> "ChatPart":
+    def from_ai_reply(cls, response: GenerateContentResponse | Part) -> "ChatPart":
         """
         Create a model ChatPart object from Gemini response.
 
@@ -144,10 +158,10 @@ class ChatPart:
         Saves the token count from the model response.
         """
         part = Part.from_text(response.text)
-        if isinstance(response, GenerationResponse):
+        if isinstance(response, GenerateContentResponse):
             tokens = response.usage_metadata.candidates_token_count
         else:
-            tokens = _tokenizer.count_tokens(part).total_tokens
+            tokens = cls._count_tokens(part)
         return cls(part, "model", tokens)
 
     @classmethod
@@ -170,7 +184,7 @@ class ChatPart:
         Stores the bytes content and assigns the `role` as "model".
         Saves the token count by querying Gemini model.
         """
-        part = Part.from_data(data, mime_type)
+        part = Part.from_bytes(data, mime_type)
         return cls(part, "model", cls._count_tokens(part))
 
 
@@ -199,7 +213,7 @@ class ChatHistory:
         :param bot_id: The ID of the bot that we are running as. Needed to properly recognize responses from
             previous sessions.
         """
-        print("Loading history for: ", channel, type(channel))
+        _LOGGER.info(f"Loading history for: {channel} {type(channel)}")
         guild = channel.get_guild()
         member_cache = {}
         tokens = 0
@@ -223,8 +237,9 @@ class ChatHistory:
             tokens += self._history[0].token_count
             if tokens > _MAX_HISTORY_TOKEN_SIZE:
                 break
+        _LOGGER.info(f"History loaded for {channel}.")
 
-    def _build_content(self) -> list[Content]:
+    def _build_content(self) -> (list[Content], int):
         """
         Prepare the whole Content structure to be sent to the AI model, containing the whole chat history so far
         (or as much as the token limit allows).
@@ -251,7 +266,7 @@ class ChatHistory:
             tokens += part.token_count
 
             if tokens > _MAX_HISTORY_TOKEN_SIZE:
-                print("Memory full, will purge now.")
+                _LOGGER.info("Memory full, will purge now.")
                 break
 
         # We fit whole _history in the contents, no need to clear memory
@@ -267,11 +282,9 @@ class ChatHistory:
             # Can't have model start the conversation
             contents.popleft()
 
-        return list(contents)
+        return list(contents), tokens
 
-    async def trigger_answer(
-        self, model: GenerativeModel, force_tool_use: bool = False
-    ) -> (list[str], list[hikari.Bytes]):
+    async def trigger_answer(self) -> (list[str], list[hikari.Bytes]):
         """
         Uses AI to generate answer to the current chat history. Will handle function calling if the model
         requests functions to be called.
@@ -283,88 +296,19 @@ class ChatHistory:
                 "Last message in chat history needs to be from a user to generate a reply."
             )
 
-        content = self._build_content()
+        content, tokens = self._build_content()
 
-        if force_tool_use:
-            response = await model.generate_content_async(
-                content,
-                tools=TOOLS,
-                tool_config=ToolConfig(
-                    function_calling_config=ToolConfig.FunctionCallingConfig(
-                        mode=ToolConfig.FunctionCallingConfig.Mode.ANY
-                    )
-                ),
-            )
-        else:
-            response = await model.generate_content_async(content, tools=TOOLS_NO_NOOP)
+        _LOGGER.info(f"Generating answer for estimated {tokens} tokens...")
+        start = time.time()
 
-        discord_text_response = []
-        discord_attachments = []
+        response = await _client.aio.models.generate_content(
+            model=GEMINI_MODEL_NAME, contents=content, config=_gen_config
+        )
 
-        while any(part.function_call for part in response.candidates[0].content.parts):
-            call_results_parts = []
-            call_requests_parts = []
-            # Check if Gemini wants to call one of its TOOLS. With parallel function execution, there can be multiple parts
-            # calling functions.
-            for part in response.candidates[0].content.parts:
-                if getattr(part, "text", None):
-                    self._history.append(ChatPart.from_ai_reply(part))
-                    discord_text_response.append(part.text)
-
-            for part in response.candidates[0].content.parts:
-                if not getattr(part, "function_call", None):
-                    continue
-
-                self._history.append(ChatPart.from_raw_part(part))
-                call_requests_parts.append(part)
-                result, attachment = TOOL_CALLING[part.function_call.name](part)
-                if attachment:
-                    discord_attachments.append(attachment)
-                response_part = Part.from_function_response(
-                    name=part.function_call.name, response={"content": result}
-                )
-                # self._history.append(ChatPart.from_raw_part(response_part))
-                call_results_parts.append(response_part)
-
-            for response_part in call_results_parts:
-                self._history.append(ChatPart.from_raw_part(response_part, role="user"))
-
-            assert len(call_results_parts) > 0
-            content.append(
-                Content(parts=call_requests_parts, role="model")
-            )  # The Gemini request for function calls, all of them
-            content.append(Content(parts=call_results_parts))
-
-            # Sending only the original message, request for function call and function call response
-            # To allow for very long function call responses
-            try:
-                response = await model.generate_content_async(content, tools=TOOLS)
-            except InvalidArgument as e:
-                print("The ending of content that caused the issue:")
-                print("Start ##########################################")
-                for c in content[-6:]:
-                    print("Role: ", c.role)
-                    for p in c.parts:
-                        print("  Part: ", str(p)[:200])
-                print("################################################")
-                raise e
-
+        _LOGGER.info(f"Generated response for estimated {tokens} tokens in {time.time()-start}s.")
         self._history.append(ChatPart.from_ai_reply(response))
-        discord_text_response.append(response.text)
 
-        discord_byte_attachments = []
-        for attachment in discord_attachments:
-            assert isinstance(attachment, GeneratedImage)
-            with tempfile.NamedTemporaryFile(suffix=".png") as temp:
-                attachment.save(temp.name)
-                with open(temp.name, "rb") as image:
-                    img_bytes = image.read()
-            discord_byte_attachments.append(
-                hikari.Bytes(img_bytes, "attachment.png", "image/png")
-            )
-            self._history.append(ChatPart.from_bytes(img_bytes, attachment._mime_type))
-
-        return discord_text_response, discord_byte_attachments
+        return [response.text], []
 
 
 class GeminiBot:
@@ -377,18 +321,6 @@ class GeminiBot:
 
     def __init__(self, me: OwnUser):
         self.me = me
-        self.model = GenerativeModel(
-            model_name=GEMINI_MODEL_NAME,
-            generation_config=GenerationConfig(temperature=0, max_output_tokens=1800),
-            system_instruction=f"You are a Discord bot named GeminiBot or <@{self.me.id}>."
-            "Your task is to provide useful information to users interacting with you. "
-            "You should be positive, cheerful and polite. "
-            "Feel free to use the default Discord emojis. "
-            "You are provided with chat history in JSON format, but your answers should be regular text. "
-            "Always reply to the last message in the chat history. "
-            "Use the tools available to you to fulfill user requests. Don't hesitate to make the function calls!",
-            tools=TOOLS,
-        )
         self.memory = defaultdict(ChatHistory)
 
     async def handle_message(self, event: hikari.GuildMessageCreateEvent) -> None:
@@ -414,18 +346,15 @@ class GeminiBot:
             # Reply only when mentioned in the message.
             return
 
-        # Check if the users wants to force usage of tools
-        force_tools_use = message.content.startswith("!")
-
         # The bot has been pinged, we need to reply
         await event.get_channel().trigger_typing()
         try:
             text_responses, attachments = await self.memory[
                 message.channel_id
-            ].trigger_answer(self.model, force_tools_use)
+            ].trigger_answer()
         except Exception as e:
             await event.message.respond(
-                "Sorry, there was an error processing your request :("
+                "Sorry, there was an error processing an answer for you :("
             )
             raise e
         for text_response in text_responses[:-1]:
