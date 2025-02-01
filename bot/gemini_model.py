@@ -8,7 +8,14 @@ from typing import Literal
 import google.auth
 import hikari
 from google import genai
-from google.genai.types import Part, Content, GenerateContentConfig, GenerateContentResponse, Tool, GoogleSearch
+from google.genai.types import (
+    Part,
+    Content,
+    GenerateContentConfig,
+    GenerateContentResponse,
+    Tool,
+    GoogleSearch,
+)
 from hikari import OwnUser
 
 import discord_cache
@@ -18,9 +25,7 @@ GEMINI_TOS = "https://ai.google.dev/gemini-api/terms"
 
 GEMINI_MODEL_NAME = "gemini-2.0-flash-exp"
 
-_MAX_HISTORY_TOKEN_SIZE = (
-    1000000  # 1M to keep things simple, real limit is 1,048,576
-)
+_MAX_HISTORY_TOKEN_SIZE = 1000000  # 1M to keep things simple, real limit is 1,048,576
 
 _LOGGER = logging.getLogger("bot.gemini")
 
@@ -47,7 +52,9 @@ ACCEPTED_MIMES = {
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", None)
 
 if GEMINI_API_KEY is None:
-    _client = genai.Client(vertexai=True, project=google.auth.default()[1], location='us-central1')
+    _client = genai.Client(
+        vertexai=True, project=google.auth.default()[1], location="us-central1"
+    )
 else:
     _client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -56,14 +63,15 @@ _gen_config = GenerateContentConfig(
     candidate_count=1,
     max_output_tokens=1800,
     system_instruction=f"You are a Discord bot named GeminiBot."
-        "Your task is to provide useful information to users interacting with you. "
-        "You should be positive, cheerful and polite. "
-        "Feel free to use the default Discord emojis. "
-        "You are provided with chat history in JSON format, but your answers should be regular text. "
-        "Always reply to the last message in the chat history. ",
-    tools=[Tool(google_search=GoogleSearch())], # for Gemini 2
-    response_modalities=["TEXT"]
+    "Your task is to provide useful information to users interacting with you. "
+    "You should be positive, cheerful and polite. "
+    "Feel free to use the default Discord emojis. "
+    "You are provided with chat history in JSON format, but your answers should be regular text. "
+    "Always reply to the last message in the chat history. ",
+    tools=[Tool(google_search=GoogleSearch())],  # for Gemini 2
+    response_modalities=["TEXT"],
 )
+
 
 class ChatPart:
     """
@@ -92,7 +100,7 @@ class ChatPart:
     @staticmethod
     def _count_tokens(part: Part) -> int:
         if hasattr(part, "text") and part.text is not None:
-            return int(len(part.text)*0.3)
+            return int(len(part.text) * 0.3)
         if hasattr(part, "inline_data") and part.inline_data is not None:
             if part.inline_data.mime_type.startswith("image"):
                 return 258
@@ -103,8 +111,12 @@ class ChatPart:
         # 1000 bytes per token video, 800 bytes per token for audio - those are rough estimates
         _LOGGER.debug(f"Counting tokens for {part}"[:200])
         start = time.time()
-        count = _client.models.count_tokens(model=GEMINI_MODEL_NAME, contents=part).total_tokens
-        _LOGGER.debug(f"Counted tokens for {len(part.inline_data.data)} bytes in {time.time() - start}s with token count: {count}")
+        count = _client.models.count_tokens(
+            model=GEMINI_MODEL_NAME, contents=part
+        ).total_tokens
+        _LOGGER.debug(
+            f"Counted tokens for {len(part.inline_data.data)} bytes in {time.time() - start}s with token count: {count}"
+        )
         return count
 
     @classmethod
@@ -313,7 +325,9 @@ class ChatHistory:
             model=GEMINI_MODEL_NAME, contents=content, config=_gen_config
         )
 
-        _LOGGER.info(f"Generated response for estimated {tokens} tokens in {time.time()-start}s.")
+        _LOGGER.info(
+            f"Generated response for estimated {tokens} tokens in {time.time()-start}s."
+        )
         self._history.append(ChatPart.from_ai_reply(response))
 
         return [response.text], []
