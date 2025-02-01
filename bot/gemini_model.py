@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import time
 from collections import defaultdict, deque
 from typing import Literal
@@ -12,10 +13,11 @@ from hikari import OwnUser
 
 import discord_cache
 
-
 VERTEX_TOS = "https://developers.google.com/terms"
+GEMINI_TOS = "https://ai.google.dev/gemini-api/terms"
+
 GEMINI_MODEL_NAME = "gemini-2.0-flash-exp"
-# GEMINI_MODEL_NAME = "gemini-1.5-flash-002"
+
 _MAX_HISTORY_TOKEN_SIZE = (
     1000000  # 1M to keep things simple, real limit is 1,048,576
 )
@@ -42,7 +44,13 @@ ACCEPTED_MIMES = {
     "video/flv",
 }
 
-_client = genai.Client(vertexai=True, project=google.auth.default()[1], location='us-central1')
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", None)
+
+if GEMINI_API_KEY is None:
+    _client = genai.Client(vertexai=True, project=google.auth.default()[1], location='us-central1')
+else:
+    _client = genai.Client(api_key=GEMINI_API_KEY)
+
 _gen_config = GenerateContentConfig(
     temperature=0,
     candidate_count=1,

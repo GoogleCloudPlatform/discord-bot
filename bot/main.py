@@ -19,7 +19,7 @@ from collections import defaultdict
 
 import hikari
 
-from gemini_model import GeminiBot, VERTEX_TOS
+from gemini_model import GeminiBot, VERTEX_TOS, GEMINI_TOS, GEMINI_API_KEY
 
 bot = hikari.GatewayBot(
     token=os.getenv("DISCORD_BOT_TOKEN"),
@@ -56,8 +56,8 @@ def parse_args():
     parser.add_argument(
         "--accept-tos",
         action="store_true",
-        help="Use this flag to omit the question about Vertex AI ToS. "
-        "By using this flag, you confirm that you've read and accepted Vertex AI ToS.",
+        help="Use this flag to omit the question about Vertex AI and Gemini API ToS. "
+        "By using this flag, you confirm that you've read and accepted Vertex AI and/or Gemini API ToS.",
     )
     args = parser.parse_args()
     return args
@@ -66,9 +66,14 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     if not args.accept_tos:
-        response = input(
-            f"Just to make sure, did you read and accept the Vertex AI API Terms of Service ( {VERTEX_TOS} )? [NO/yes] "
-        )
+        if GEMINI_API_KEY is None:
+            response = input(
+                f"Just to make sure, did you read and accept the Vertex AI API Terms of Service ( {VERTEX_TOS} )? [NO/yes] "
+            )
+        else:
+            response = input(
+                f"Just to make sure, did you read and accept the Gemini API Terms of Service ( {GEMINI_TOS} )? [NO/yes] "
+            )
 
         if response.lower() != "yes":
             print(
