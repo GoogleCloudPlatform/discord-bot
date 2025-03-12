@@ -1,8 +1,8 @@
 # hikari is the static-typed Python API for writing Discord bots
-hikari
+hikari==2.1.1
 # To handle the AI part of the Bot
-google-genai
+google-genai==1.5.0
 # To manage configuration files
-platformdirs
+platformdirs==4.3.6
 # To make downloading stuff easier
-requests
+requests==2.32.3
