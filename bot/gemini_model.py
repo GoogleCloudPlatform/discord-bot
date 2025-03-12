@@ -89,7 +89,7 @@ class ChatPart:
     ):
         self.part = chat_part
         self.role = role
-        self.token_count = token_count
+        self.token_count = token_count or 0
 
     def __str__(self):
         return f"<{self.role}: {self.part} [{self.token_count}]>"
@@ -115,7 +115,7 @@ class ChatPart:
             model=GEMINI_MODEL_NAME, contents=part
         ).total_tokens
         _LOGGER.debug(
-            f"Counted tokens for {len(part.inline_data.data)} bytes in {time.time() - start}s with token count: {count}"
+            f"Counted tokens for {part} in {time.time() - start}s with token count: {count}"
         )
         return count
 
@@ -134,17 +134,17 @@ class ChatPart:
                 "content": message.content,
             }
         )
-        text_part = Part.from_text(msg)
+        text_part = Part.from_text(text=msg)
         parts = [(text_part, cls._count_tokens(text_part))]
 
         for a in message.attachments:
             if a.media_type not in ACCEPTED_MIMES:
                 part = Part.from_text(
-                    f"Here user uploaded a file in unsupported {a.media_type} type."
+                    text=f"Here user uploaded a file in unsupported {a.media_type} type."
                 )
             else:
                 data = discord_cache.get_from_cache(a.url)
-                part = Part.from_bytes(data, a.media_type)
+                part = Part.from_bytes(data=data, mime_type=a.media_type)
             parts.append((part, cls._count_tokens(part)))
 
         return [cls(part, "user", tokens) for part, tokens in parts]
@@ -157,14 +157,14 @@ class ChatPart:
         Stores the text content of the message and assigns the `role` as "model".
         This method also calculates and saves the token count.
         """
-        part = Part.from_text(message.content)
+        part = Part.from_text(text=message.content)
         tokens = cls._count_tokens(part)
 
         parts = [(part, tokens)]
 
         for a in message.attachments:
             data = discord_cache.get_from_cache(a.url)
-            part = Part.from_bytes(data, a.media_type)
+            part = Part.from_bytes(data=data, mime_type=a.media_type)
             parts.append((part, cls._count_tokens(part)))
 
         return [cls(part, "model", tokens) for part, tokens in parts]
@@ -177,7 +177,7 @@ class ChatPart:
         Stores the text content of the message and assigns the `role` as "model".
         Saves the token count from the model response.
         """
-        part = Part.from_text(response.text)
+        part = Part.from_text(text=response.text)
         if isinstance(response, GenerateContentResponse):
             tokens = response.usage_metadata.candidates_token_count
         else:
@@ -204,7 +204,7 @@ class ChatPart:
         Stores the bytes content and assigns the `role` as "model".
         Saves the token count by querying Gemini model.
         """
-        part = Part.from_bytes(data, mime_type)
+        part = Part.from_bytes(bytes=data, mime_type=mime_type)
         return cls(part, "model", cls._count_tokens(part))
 
 
@@ -254,7 +254,7 @@ class ChatHistory:
                 self._history.extendleft(
                     reversed(ChatPart.from_user_chat_message(message))
                 )
-            tokens += self._history[0].token_count
+            tokens += self._history[0].token_count or 0
             if tokens > _MAX_HISTORY_TOKEN_SIZE:
                 break
         _LOGGER.info(f"History loaded for {channel}.")
@@ -283,7 +283,7 @@ class ChatHistory:
                 contents.appendleft(content)
                 buffer.clear()
             buffer.appendleft((part.part, part.role))
-            tokens += part.token_count
+            tokens += part.token_count or 0
 
             if tokens > _MAX_HISTORY_TOKEN_SIZE:
                 _LOGGER.info("Memory full, will purge now.")
