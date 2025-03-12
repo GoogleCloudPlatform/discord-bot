@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+import pathlib
 from collections import defaultdict, deque
 from typing import Literal
 
@@ -58,16 +59,16 @@ if GEMINI_API_KEY is None:
 else:
     _client = genai.Client(api_key=GEMINI_API_KEY)
 
+
+_system_instructions_file = pathlib.Path("system_instructions.txt")
+if not _system_instructions_file.is_file():
+    _system_instructions_file = pathlib.Path("default_system_instructions.txt")
+
 _gen_config = GenerateContentConfig(
     temperature=0,
     candidate_count=1,
     max_output_tokens=1800,
-    system_instruction=f"You are a Discord bot named GeminiBot."
-    "Your task is to provide useful information to users interacting with you. "
-    "You should be positive, cheerful and polite. "
-    "Feel free to use the default Discord emojis. "
-    "You are provided with chat history in JSON format, but your answers should be regular text. "
-    "Always reply to the last message in the chat history. ",
+    system_instruction=_system_instructions_file.read_text(),
     tools=[Tool(google_search=GoogleSearch())],  # for Gemini 2
     response_modalities=["TEXT"],
 )
