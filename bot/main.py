@@ -15,7 +15,6 @@
 import argparse
 import os
 import sys
-from collections import defaultdict
 
 import hikari
 
@@ -40,10 +39,10 @@ async def on_ready(event: hikari.StartedEvent):
 
 
 @bot.listen()
-async def ping(event: hikari.GuildMessageCreateEvent) -> None:
+async def new_guild_message(event: hikari.GuildMessageCreateEvent) -> None:
     """
-    Forward all new guild messages to the GeminiBot for handling. This does not include Direct Messages that users can
-    send to your bot.
+    Forward all new guild messages to the GeminiBot for handling. This does not include
+    Direct Messages that users can send to your bot.
     """
 
     await gemini_bot.handle_message(event)

@@ -8,6 +8,7 @@ from typing import Literal
 
 import google.auth
 import hikari
+import magic
 from google import genai
 from google.genai.types import (
     Part,
@@ -51,10 +52,12 @@ ACCEPTED_MIMES = {
 }
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", None)
+GEMINI_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", google.auth.default()[1])
 
 if GEMINI_API_KEY is None:
     _client = genai.Client(
-        vertexai=True, project=google.auth.default()[1], location="us-central1"
+        # Need to use us-central1 as it's the only region with gemini-2.0-flash-exp model
+        vertexai=True, project=GEMINI_PROJECT, location="us-central1"
     )
 else:
     _client = genai.Client(api_key=GEMINI_API_KEY)
@@ -86,11 +89,11 @@ class ChatPart:
     """
 
     def __init__(
-        self, chat_part: Part, role: Literal["user", "model"], token_count: int
+        self, chat_part: Part, role: Literal["user", "model"], token_count: int=None
     ):
         self.part = chat_part
         self.role = role
-        self.token_count = token_count or 0
+        self.token_count = token_count or self._count_tokens(chat_part)
 
     def __str__(self):
         return f"<{self.role}: {self.part} [{self.token_count}]>"
@@ -121,6 +124,23 @@ class ChatPart:
         return count
 
     @classmethod
+    def _parse_embed(cls, sender: str, embed: hikari.Embed) -> list[Part]:
+        title = embed.title
+        description = embed.description
+        image = embed.image.proxy_url if embed.image else None
+        author = embed.author.name if embed.author else None
+        footer = embed.footer.text if embed.footer else None
+        fields = [{'title': f.name, 'text': f.value} for f in embed.fields]
+        embed_json = {'title': title, 'description': description, 'fields': fields, 'sender': sender, 'author': author, 'footer': footer, 'type': 'embed}'}
+        embed_part = Part.from_text(text=json.dumps(embed_json))
+        if image:
+            data = discord_cache.get_from_cache(image)
+            embed_img = Part.from_bytes(data=data, mime_type=magic.from_buffer(data, mime=True))
+            return [embed_part, embed_img]
+        else:
+            return [embed_part]
+
+    @classmethod
     def from_user_chat_message(cls, message: hikari.Message) -> list["ChatPart"]:
         """
         Create a user ChatPart object from hikari.Message.
@@ -128,15 +148,20 @@ class ChatPart:
         Stores the text content of the message as JSON encoded object and assigns the `role` as "user".
         This method also calculates and saves the token count.
         """
+        author = getattr(message.member, "display_name", False)
         msg = json.dumps(
             {
-                "author": getattr(message.member, "display_name", False)
+                "author": author
                 or message.author.username,
                 "content": message.content,
             }
         )
         text_part = Part.from_text(text=msg)
         parts = [(text_part, cls._count_tokens(text_part))]
+
+        for e in message.embeds:
+            for embed_part in cls._parse_embed(author, e):
+                parts.append((embed_part, cls._count_tokens(embed_part)))
 
         for a in message.attachments:
             if a.media_type not in ACCEPTED_MIMES:
@@ -356,10 +381,11 @@ class GeminiBot:
             return
 
         message = event.message
+        channel = await message.fetch_channel()
 
         if message.channel_id not in self.memory:
             chat_history = ChatHistory()
-            await chat_history.load_history(await message.fetch_channel(), self.me.id)
+            await chat_history.load_history(channel, self.me.id)
             self.memory[message.channel_id] = chat_history
         else:
             # Loading history would catch this message anyway
@@ -370,7 +396,7 @@ class GeminiBot:
             return
 
         # The bot has been pinged, we need to reply
-        await event.get_channel().trigger_typing()
+        await channel.trigger_typing()
         try:
             text_responses, attachments = await self.memory[
                 message.channel_id
