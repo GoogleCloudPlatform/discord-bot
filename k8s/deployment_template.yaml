@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: discord-gemini-bot-deployment
+  labels:
+    app: discord-gemini-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: discord-gemini-bot
+  template:
+    metadata:
+      labels:
+        app: discord-gemini-bot
+    spec:
+      # Remove this nodeSelector specification to not use Spot Pods
+      nodeSelector:
+        cloud.google.com/gke-spot: "true"
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: discord-gemini-bot
+          image: your-dockerhub-username/discord-gemini-bot:latest # Replace with your image
+          imagePullPolicy: Always # Or IfNotPresent if you are not updating the image often
+          env:
+            # Uncomment if you want to use Gemini API Key
+#            - name: GEMINI_API_KEY
+#              valueFrom:
+#                secretKeyRef:
+#                  name: gemini-api-key-secret
+#                  key: key
+            - name: DISCORD_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: discord-token-secret
+                  key: token
+            - name: GOOGLE_CLOUD_PROJECT
+              value: 'your-google-cloud-project-id' # Replace with your project ID
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "3Gi"
+          volumeMounts:
+            - name: sys-instructions-volume
+              mountPath: /app/system_instructions.txt # The path inside the container where the file will be mounted
+              subPath: system_instructions.txt # The key from the ConfigMap that will be mounted as a file
+      volumes:
+        - name: sys-instructions-volume
+          configMap:
+            name: discord-bot-sys-instructions-configmap # The name of your ConfigMap
+            items:
+              - key: system_instructions.txt
+                path: system_instructions.txt
