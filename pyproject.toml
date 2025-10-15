@@ -1,0 +1,9 @@
+[project]
+name = "discord-bot"
+version = "0.1.0"
+description = "Discord bot providing scalable, instant, and accurate support for large-scale community events and developer forums by leveraging an AI-powered agent to answer frequently asked questions."
+requires-python = ">=3.13"
+dependencies = [
+    "google-adk>=1.16.0",
+    "hikari>=2.4.1",
+]
