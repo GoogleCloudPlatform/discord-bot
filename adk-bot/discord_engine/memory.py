@@ -4,7 +4,7 @@ import pathlib
 
 import platformdirs
 
-MEMORY_DIR = os.getenv("DISCORD_BOT_MEMORY", pathlib.Path(platformdirs.user_data_dir("discord-bot")))
+MEMORY_DIR = pathlib.Path(os.getenv("DISCORD_BOT_MEMORY", pathlib.Path(platformdirs.user_data_dir("discord-bot"))))
 
 logging.info(f"Bot memory located at: {MEMORY_DIR}")
 
