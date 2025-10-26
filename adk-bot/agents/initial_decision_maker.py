@@ -19,37 +19,41 @@ import pydantic
 from google.adk.agents import Agent
 from google.adk.runners import Runner
 
-from .common import _APP_NAME, session_service, ensure_session_exists, _USER, message_to_content, load_prompt
-
+from .common import session_service, ensure_session_exists, message_to_content, load_prompt, USER
+from config import (
+    DECISION_AGENT_NAME,
+    DECISION_AGENT_MODEL,
+    DECISION_AGENT_DESCRIPTION,
+    DECISION_AGENT_OUTPUT_KEY,
+)
 
 class DecisionOutput(pydantic.BaseModel):
     answer: bool
     thread_title: str
 
 decision_agent = Agent(
-    name="the_great_decider",
-    model="gemini-2.5-flash-lite",
-    description=(
-        "This agent is used to decide should the system answer a user message or not."
-    ),
+    name=DECISION_AGENT_NAME,
+    model=DECISION_AGENT_MODEL,
+    description=DECISION_AGENT_DESCRIPTION,
     instruction=load_prompt('decision_agent_prompt'),
     output_schema=DecisionOutput,
-    output_key="initial_decision"
-)
-
-_decision_runner = Runner(
-    agent=decision_agent,
-    app_name=_APP_NAME,
-    session_service=session_service,
+    output_key=DECISION_AGENT_OUTPUT_KEY,
 )
 
 async def decide_on_answer(message: hikari.Message) -> DecisionOutput:
+    from app import decision_app
+
+    decision_runner = Runner(
+        app=decision_app,
+        session_service=session_service,
+    )
+
     await ensure_session_exists(message.id)
 
     new_message = message_to_content(message)
 
-    for event in _decision_runner.run(user_id=_USER, session_id=str(message.id), new_message=new_message):
+    for event in decision_runner.run(user_id=USER, session_id=str(message.id), new_message=new_message):
         if event.is_final_response():
-            await session_service.delete_session(app_name=_APP_NAME, user_id=_USER, session_id=str(message.id))
+            await session_service.delete_session(app_name=decision_app.name, user_id=USER, session_id=str(message.id))
             return DecisionOutput(**json.loads(event.content.parts[0].text))
     raise RuntimeError

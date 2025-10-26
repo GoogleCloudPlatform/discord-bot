@@ -14,6 +14,7 @@
 
 import json
 import logging
+from pathlib import Path
 
 import hikari
 from google.adk.events import Event
@@ -21,40 +22,22 @@ from google.adk.sessions import InMemorySessionService, Session
 from google.genai.types import Content, Part
 
 from . import cache
-
-_APP_NAME = "DiscordBot"
-_USER = "public"
-
-ACCEPTED_MIMES = {
-    "application/pdf",
-    "audio/mpeg",
-    "audio/mp3",
-    "audio/wav",
-    "image/gif",
-    "image/png",
-    "image/jpeg",
-    "image/webp",
-    "text/plain",
-    "video/mov",
-    "video/mpeg",
-    "video/mp4",
-    "video/mpg",
-    "video/avi",
-    "video/wmv",
-    "video/mpegps",
-    "video/flv",
-}
+from config import APP_NAME, USER, ACCEPTED_MIMES, BOT_NAME
 
 session_service = InMemorySessionService()
 
-_SHARED_PROMPT = open("agents/prompts/shared_prompt.txt").read()
+PROMPTS_PATH = Path(__file__).parent / "prompts"
+
+_SHARED_PROMPT = (
+    (PROMPTS_PATH / "shared_prompt.txt").read_text() + cache.get_pre_cached_content()
+)
 
 def load_prompt(prompt_name: str) -> str:
     """
     Loads the prompt from a file with given name, prepending it with the shared prompt that describes the whole system
     to all the agents.
     """
-    return _SHARED_PROMPT + open(f"agents/prompts/{prompt_name}.txt").read()
+    return _SHARED_PROMPT + (PROMPTS_PATH / f"{prompt_name}.txt").read_text()
 
 def message_to_parts(message: hikari.Message) -> list[Part]:
     author = getattr(message.member, 'display_name', None) or message.author.username
@@ -95,11 +78,11 @@ async def load_session_with_messages(channel_id: int, messages: list[hikari.Mess
 
 
 async def ensure_session_exists(channel_id: int) -> Session:
-    if (session := await session_service.get_session(app_name=_APP_NAME, user_id=_USER, session_id=str(channel_id))) is None:
+    if (session := await session_service.get_session(app_name=APP_NAME, user_id=USER, session_id=str(channel_id))) is None:
         logging.info(f"Creating session for channel {channel_id}.")
-        session = await session_service.create_session(app_name=_APP_NAME, user_id=_USER, session_id=str(channel_id), state={'bot_name': 'Agent Whiskers'})
+        session = await session_service.create_session(app_name=APP_NAME, user_id=USER, session_id=str(channel_id), state={'bot_name': BOT_NAME})
     return session
 
 async def session_exists(channel_id: int) -> bool:
-    result = await session_service.get_session(app_name=_APP_NAME, user_id=_USER, session_id=str(channel_id))
+    result = await session_service.get_session(app_name=APP_NAME, user_id=USER, session_id=str(channel_id))
     return result is not None

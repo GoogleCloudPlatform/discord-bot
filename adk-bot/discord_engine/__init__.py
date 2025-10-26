@@ -21,9 +21,9 @@ from hikari import ChannelType
 
 from agents import reply_to_message, decide_on_answer, DecisionOutput, session_exists, load_session_with_messages
 from . import memory
+from config import BOT_NAME, SLASH_COMMAND_STOP
 
 assert(os.getenv("DISCORD_BOT_TOKEN") is not None)
-BOT_NAME = os.getenv("DISCORD_BOT_NAME", "GeminiBot")
 
 bot = hikari.GatewayBot(
     token=os.getenv("DISCORD_BOT_TOKEN"),
@@ -38,7 +38,7 @@ async def on_ready(event: hikari.StartedEvent):
     """
     application = await bot.rest.fetch_application()
     commands = [
-        bot.rest.slash_command_builder("agent_stop", f"Makes {BOT_NAME} stop participating in a thread."),
+        bot.rest.slash_command_builder(SLASH_COMMAND_STOP, f"Makes {BOT_NAME} stop participating in a thread."),
     ]
 
     await bot.rest.set_application_commands(application=application.id, commands=commands)
@@ -48,7 +48,7 @@ async def on_ready(event: hikari.StartedEvent):
 @bot.listen()
 async def handle_interactions(event: hikari.CommandInteractionCreateEvent) -> None:
     """Listen for slash commands being executed."""
-    if event.interaction.command_name == "agent_stop":
+    if event.interaction.command_name == SLASH_COMMAND_STOP:
         if not memory.is_thread_tracked(event.interaction.channel_id):
             return
         await event.interaction.create_initial_response(

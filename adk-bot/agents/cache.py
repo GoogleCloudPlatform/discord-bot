@@ -19,10 +19,9 @@ import logging
 import platformdirs
 import requests
 
-CACHE_PATH = Path(platformdirs.user_cache_path("discord-bot"))
-CACHE_PATH.mkdir(parents=True, exist_ok=True)
+from config import CACHED_URLS
 
-logging.info(f"Bot cache located at: {CACHE_PATH}")
+CACHE_PATH = Path(platformdirs.user_cache_path("discord-bot"))
 
 
 def _get_file_name(url: str) -> Path:
@@ -52,3 +51,24 @@ def get_from_cache(url: str) -> bytes:
     elif not file_path.exists():
         return add_to_cache(url)
     raise FileNotFoundError("Name already used by not-file.")
+
+
+def load_pre_cached_urls():
+    """Ensures that all URLs in CACHED_URLS are in the cache."""
+    logging.info("Caching files...")
+    for url in CACHED_URLS:
+        try:
+            add_to_cache(url)
+        except Exception:
+            logging.exception("Coud not cache %s", url)
+    logging.info("Caching complete.")
+
+
+def get_pre_cached_content() -> str:
+    """Returns the content of all pre-cached URLs as a single string."""
+    content = []
+    for url in CACHED_URLS:
+        file_path = _get_file_name(url)
+        if file_path.is_file():
+            content.append(file_path.read_text())
+    return "\n".join(content)
