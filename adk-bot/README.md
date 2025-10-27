@@ -43,5 +43,6 @@ This is a Discord bot built with the Google Agent Development Kit (ADK) and the 
 Once you've completed the setup, you can run the bot with the following command:
 
 ```bash
-python adk-bot/main.py
+cd adk-bot
+python main.py
 ```
