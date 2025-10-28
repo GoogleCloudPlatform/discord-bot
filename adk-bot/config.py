@@ -27,7 +27,9 @@ SLASH_COMMAND_STOP = "agent_stop"
 
 # Models
 DECISION_AGENT_MODEL = "gemini-2.5-flash-lite"
-ROOT_AGENT_MODEL = "gemini-2.5-flash-lite"
+ROOT_AGENT_MODEL = "gemini-2.5-pro"
+SEARCH_AGENT_MODEL = "gemini-2.5-flash-lite"
+DOCUMENT_READER_MODEL = "gemini-2.5-pro"
 
 # Agents
 DECISION_AGENT_NAME = "the_great_decider"
@@ -38,6 +40,12 @@ DECISION_AGENT_OUTPUT_KEY = "initial_decision"
 
 ROOT_AGENT_NAME = "base_agent"
 ROOT_AGENT_DESCRIPTION = "General purpose agent to generate some responses."
+
+SEARCH_AGENT_NAME = "search_agent"
+SEARCH_AGENT_DESCRIPTION = "This agent knows how to Google stuff."
+
+DOCUMENT_READER_NAME = "document_reader"
+DOCUMENT_READER_DESCRIPTION = "Agent that has access to a set of documents that contain frequently asked questions and answers and other potentially useful information."
 
 # Event Compaction
 COMPACTION_INTERVAL = 2

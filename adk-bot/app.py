@@ -11,10 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from google.adk.agents.context_cache_config import ContextCacheConfig
+from google.adk.apps.app import EventsCompactionConfig, App
 
-from google.adk.app import App
-from google.adk.apps.app import EventsCompactionConfig
-from google.adk.context_caching import ContextCacheConfig
 
 from agents import cache
 from agents.initial_decision_maker import decision_agent
@@ -32,7 +31,7 @@ class BotApp(App):
 
 # Configure ContextCacheConfig
 cache_config = ContextCacheConfig(
-    cache_static_context_only=True,
+    # cache_static_context_only=True,
 )
 
 # Configure EventsCompactionConfig

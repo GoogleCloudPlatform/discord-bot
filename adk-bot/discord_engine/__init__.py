@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import itertools
 import logging
 import logging.handlers
 import os
@@ -108,14 +108,15 @@ async def new_guild_message(event: hikari.GuildMessageCreateEvent) -> None:
 
         # Ensure that ADK has the contents of this conversation.
         if not await session_exists(reply_to.id):
-            print("No session here!")
             history = await load_channel_history(channel)
             await load_session_with_messages(reply_to.id, history)
 
     async with reply_to.trigger_typing():
         response = await reply_to_message(event.message, reply_to.id)
         answer = "".join(p.text for p in response.parts if p.text is not None)
-        await reply_to.send(answer, reply=event.message if reply_to == channel else None)
+        for block in itertools.batched(answer, 2000):
+            block = "".join(block)
+            await reply_to.send(block, reply=event.message if reply_to == channel else None)
 
 
 

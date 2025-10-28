@@ -3,3 +3,5 @@ hikari
 python-dotenv
 platformdirs
 pydantic
+pytest
+pytest-asyncio

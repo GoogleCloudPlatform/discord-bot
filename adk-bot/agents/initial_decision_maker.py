@@ -19,12 +19,12 @@ import pydantic
 from google.adk.agents import Agent
 from google.adk.runners import Runner
 
-from .common import session_service, ensure_session_exists, message_to_content, load_prompt, USER
+from .common import session_service, ensure_session_exists, message_to_content, load_prompt, USER, delete_session
 from config import (
     DECISION_AGENT_NAME,
     DECISION_AGENT_MODEL,
     DECISION_AGENT_DESCRIPTION,
-    DECISION_AGENT_OUTPUT_KEY,
+    DECISION_AGENT_OUTPUT_KEY, APP_NAME,
 )
 
 class DecisionOutput(pydantic.BaseModel):
@@ -41,19 +41,24 @@ decision_agent = Agent(
 )
 
 async def decide_on_answer(message: hikari.Message) -> DecisionOutput:
-    from app import decision_app
+    """
+    Based on the message received, decide if the bot should start a conversation.
 
+    Returns:
+        DecisionOutput object with indication if the bot should answer, and if that's True it will also contain
+        thread_title set to a short title that matches the topic of the message.
+    """
+    from app import decision_app
     decision_runner = Runner(
         app=decision_app,
         session_service=session_service,
     )
 
-    await ensure_session_exists(message.id)
-
+    session = await ensure_session_exists(message.id)
     new_message = message_to_content(message)
 
-    for event in decision_runner.run(user_id=USER, session_id=str(message.id), new_message=new_message):
+    for event in decision_runner.run(user_id=session.user_id, session_id=session.id, new_message=new_message):
         if event.is_final_response():
-            await session_service.delete_session(app_name=decision_app.name, user_id=USER, session_id=str(message.id))
+            await delete_session(session.id)
             return DecisionOutput(**json.loads(event.content.parts[0].text))
     raise RuntimeError

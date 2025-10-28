@@ -15,6 +15,7 @@
 import json
 import logging
 from pathlib import Path
+from typing import Callable
 
 import hikari
 from google.adk.events import Event
@@ -32,12 +33,15 @@ _SHARED_PROMPT = (
     (PROMPTS_PATH / "shared_prompt.txt").read_text() + cache.get_pre_cached_content()
 )
 
-def load_prompt(prompt_name: str) -> str:
+def load_prompt(prompt_name: str) -> Callable:
     """
     Loads the prompt from a file with given name, prepending it with the shared prompt that describes the whole system
     to all the agents.
+
+    Returning callable, to be an InstructionProvider.
     """
-    return _SHARED_PROMPT + (PROMPTS_PATH / f"{prompt_name}.txt").read_text()
+    prompt = _SHARED_PROMPT + (PROMPTS_PATH / f"{prompt_name}.txt").read_text()
+    return lambda _: prompt
 
 def message_to_parts(message: hikari.Message) -> list[Part]:
     author = getattr(message.member, 'display_name', None) or message.author.username
@@ -86,3 +90,8 @@ async def ensure_session_exists(channel_id: int) -> Session:
 async def session_exists(channel_id: int) -> bool:
     result = await session_service.get_session(app_name=APP_NAME, user_id=USER, session_id=str(channel_id))
     return result is not None
+
+async def delete_session(channel_id: int | str) -> None:
+    if (await session_service.get_session(app_name=APP_NAME, user_id=USER, session_id=str(channel_id))) is None:
+        return
+    await session_service.delete_session(app_name=APP_NAME, user_id=USER, session_id=str(channel_id))
