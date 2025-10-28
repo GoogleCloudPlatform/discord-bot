@@ -13,17 +13,27 @@
 # limitations under the License.
 
 import logging
+from pathlib import Path
 
 import dotenv
 
-import discord_engine
+logging.basicConfig(level=logging.INFO)
+
+from agents import cache
 
 logger = logging.getLogger(__name__)
 
-dotenv.load_dotenv(verbose=True)
+# Load .env file from the same directory as main.py
+dotenv_path = Path(__file__).parent / ".env"
+dotenv.load_dotenv(dotenv_path=dotenv_path, verbose=True)
 
+import discord_engine
 
 if __name__ == "__main__":
     logger.info("Starting the Discord bot...")
+
     # Configure ADK
+    # TODO any pre-flight stuff, verify config, etc.
+
+    # Launch the discord_wrapped ADK Agent
     discord_engine.start_discord_engine()

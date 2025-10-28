@@ -18,31 +18,35 @@ from google.adk.runners import Runner
 from google.adk.tools import google_search
 from google.genai.types import Content
 
-from .common import _APP_NAME, session_service, ensure_session_exists, _USER, message_to_content, load_prompt
+from .common import session_service, ensure_session_exists, message_to_content, load_prompt, USER
+from config import (
+    ROOT_AGENT_NAME,
+    ROOT_AGENT_MODEL,
+    ROOT_AGENT_DESCRIPTION,
+)
 
 root_agent = Agent(
-    name="base_agent",
-    model="gemini-2.5-flash-lite",
-    description=(
-        "General purpose agent to generate some responses."
-    ),
+    name=ROOT_AGENT_NAME,
+    model=ROOT_AGENT_MODEL,
+    description=ROOT_AGENT_DESCRIPTION,
     instruction=(
         load_prompt('root_agent')
     ),
     tools=[google_search]
 )
 
-_runner = Runner(
-    agent=root_agent,
-    app_name=_APP_NAME,
-    session_service=session_service,
-)
-
 async def reply_to_message(message: hikari.Message, channel_id: int) -> Content:
+    from app import root_app
+
+    runner = Runner(
+        app=root_app,
+        session_service=session_service,
+    )
+
     await ensure_session_exists(channel_id)
 
     new_message = message_to_content(message)
-    for event in _runner.run(user_id=_USER, session_id=str(channel_id), new_message=new_message):
+    for event in runner.run(user_id=USER, session_id=str(channel_id), new_message=new_message):
         if event.is_final_response():
             return event.content
     raise RuntimeError
