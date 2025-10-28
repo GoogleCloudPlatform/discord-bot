@@ -46,3 +46,7 @@ Once you've completed the setup, you can run the bot with the following command:
 cd adk-bot
 python main.py
 ```
+
+## Testing
+
+You can run the tests by running `pytest` in the `adk-bot` folder.
