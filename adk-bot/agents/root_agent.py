@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import pprint
 
 import hikari
 from google.adk.agents import Agent
@@ -27,14 +28,14 @@ from config import (
 )
 
 from .document_reader_agent import document_reader
-
+from .vertex_search_agent import adk_knowledge_agent
 
 search_agent = Agent(
     model='gemini-2.0-flash',
     name=SEARCH_AGENT_NAME,
     description=SEARCH_AGENT_DESCRIPTION,
     instruction="""
-    You're a specialist in Google Search and you can look up any information needed.
+    You're a specialist in Google Search and you can look up any information needed about general knowledge stuff.
     """,
     tools=[google_search],
 )
@@ -47,7 +48,7 @@ root_agent = Agent(
     instruction=(
         load_prompt('root_agent')
     ),
-    tools=[AgentTool(search_agent), AgentTool(document_reader)],
+    tools=[AgentTool(search_agent), AgentTool(document_reader), AgentTool(adk_knowledge_agent)],
     generate_content_config=GenerateContentConfig(
         temperature=0.1, # More deterministic output
         max_output_tokens=600,
@@ -79,6 +80,8 @@ async def reply_to_message(message: hikari.Message, channel_id: int) -> Content:
 
     new_message = message_to_content(message)
     for event in runner.run(user_id=USER, session_id=str(channel_id), new_message=new_message):
+        pprint.pprint(event)
+        print('.')
         if event.is_final_response():
             return event.content
     raise RuntimeError

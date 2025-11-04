@@ -62,8 +62,8 @@ CACHED_URLS = [
 
 # Sources of Knowledge for RAG/Search
 # TODO https://github.com/google/adk-python/tree/main/contributing/samples/adk_knowledge_agent
-VERTEXAI_DATASTORE_ID="TODO"
-VERTEXAI_SEARCH_ENGINE_ID="TODO"
+VERTEXAI_DATASTORE_ID="projects/agent-whiskers/locations/global/collections/default_collection/dataStores/agent-wiskers-sources-curated_1761884894530}"
+VERTEXAI_SEARCH_ENGINE_ID="projects/630906681604/locations/global/collections/default_collection/engines/kaggle-5day-agent-discordb_1761837594234"
 #  data_store_id: The Vertex AI search data store resource ID in the format of
 #  "projects/{project}/locations/{location}/collections/{collection}/dataStores/{dataStore}".
 #  search_engine_id: The Vertex AI search engine resource ID in the format of
