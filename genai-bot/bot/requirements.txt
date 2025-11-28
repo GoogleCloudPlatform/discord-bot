@@ -5,6 +5,6 @@ google-genai==1.9.0
 # To manage configuration files
 platformdirs==4.3.6
 # To make downloading stuff easier
-requests==2.32.3
+requests==2.32.4
 # To guess mime_types
 python-magic==0.4.27
