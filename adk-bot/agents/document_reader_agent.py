@@ -34,7 +34,7 @@ DOCUMENT_IDS = {
 }
 
 DOCUMENTS = {
-    'event_doc': 'This document stores the information about the Kaggle event.'
+    'event_doc': 'This document stores important information.'
 }
 
 assert set(DOCUMENT_IDS.keys()) == set(DOCUMENTS.keys())
