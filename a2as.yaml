@@ -1,0 +1,368 @@
+manifest:
+  version: "0.1.3"
+  schema: https://a2as.org/cert/schema
+  subject:
+    name: googlecloudplatform/discord-bot
+    source: https://github.com/googlecloudplatform/discord-bot
+    branch: main
+    commit: "a02a0fdd"
+    scope: [adk-bot/agents/cache.py, adk-bot/agents/common.py, adk-bot/agents/document_reader_agent.py, adk-bot/agents/initial_decision_maker.py,
+      adk-bot/agents/root_agent.py, adk-bot/agents/vertex_search_agent.py, adk-bot/app.py, adk-bot/config.py]
+  issued:
+    by: A2AS.org
+    at: '2026-02-11T16:45:35Z'
+    url: https://a2as.org/certified/agents/googlecloudplatform/discord-bot
+  signatures:
+    digest: sha256:-BRkVZkooVbmmLIChMYDkcDM8HjHxuGHcFtSdxt-EX4
+    key: ed25519:bbEgVIljjZrQAXefusTgaNzH7L2dSv21uFEfGTmZWo0
+    sig: ed25519:-5vMZYse97NDO185vJVdxBDyIBiyfX7J-b4GuD8o7-0oRh2InkkgeCZgGYP6KjGr9x2Ah0PmhCONN883oZCXAw
+
+agents:
+  adk_knowledge_agent:
+    type: instance
+    models: [gemini-2.5-flash]
+    tools: [VertexAiSearchTool]
+    params:
+      name: adk_knowledge_agent
+      description: Agent for performing Vertex AI Search to find ADK knowledge and all materials related to the Kaggle event.
+      instruction:
+        function: load_prompt
+        type: file_load
+        file: adk_search
+      after_model_callback: citation_retrieval_after_model_callback
+  decision_agent:
+    type: instance
+    models: [gemini-2.5-flash-lite]
+    params:
+      name: the_great_decider
+      description: This agent is used to decide should the system answer a user message or not.
+      instruction:
+        function: load_prompt
+        type: file_load
+        file: decision_agent_prompt
+      output_schema: DecisionOutput
+      output_key: initial_decision
+  document_reader:
+    type: instance
+    models: [gemini-2.5-pro]
+    tools: [get_available_documents, get_document]
+    params:
+      name: document_reader
+      description: Agent that has access to a set of documents that contain frequently asked questions and answers and other
+        potentially useful information.
+      instruction:
+        function: load_prompt
+        type: file_load
+        file: document_reader
+  root_agent:
+    type: instance
+    models: [gemini-2.5-pro]
+    tools: [agent_tool, agent_tool, agent_tool]
+    params:
+      name: base_agent
+      description: General purpose agent to generate some responses.
+      instruction:
+        function: load_prompt
+        type: file_load
+        file: root_agent
+      generate_content_config:
+        class: GenerateContentConfig
+        temperature: "0.1"
+        max_output_tokens: "600"
+        safety_settings: ['SafetySetting(category=HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=HarmBlockThreshold.BLOCK_LOW_AND_ABOVE)']
+  search_agent:
+    type: instance
+    models: [gemini-2.0-flash]
+    tools: [google_search]
+    params:
+      name: search_agent
+      description: This agent knows how to Google stuff.
+      instruction: [You're a specialist in Google Search and you can look up any information needed about general knowledge
+          stuff.]
+
+models:
+  gemini-2.0-flash:
+    type: literal
+    agents: [search_agent]
+  gemini-2.5-flash:
+    type: literal
+    agents: [adk_knowledge_agent]
+  gemini-2.5-flash-lite:
+    type: literal
+    agents: [decision_agent]
+  gemini-2.5-pro:
+    type: literal
+    agents: [document_reader, root_agent]
+
+tools:
+  agent_tool:
+    type: agent
+    agents: [root_agent]
+    params:
+      wrapper: AgentTool
+  get_available_documents:
+    type: function
+    agents: [document_reader]
+    params:
+      description: |-
+        Returns a list of available documents as a dictionary mapping document name to the description of document content.
+        The contents of the documents can be retrieved with the get_document_as_pdf tool.
+
+        Returns: dictionary with document descriptions.
+  get_document:
+    type: function
+    agents: [document_reader]
+    params:
+      description: |-
+        Retrieves the content of a given document.
+
+        Args:
+            doc_name: Name of the document to retrieve.
+  google_search:
+    type: module
+    agents: [search_agent]
+
+imports:
+  ACCEPTED_MIMES: config.ACCEPTED_MIMES
+  adk_knowledge_agent: vertex_search_agent.adk_knowledge_agent
+  Agent: google.adk.agents.Agent
+  AgentTool: google.adk.tools.agent_tool.AgentTool
+  App: google.adk.apps.app.App
+  APP_NAME: config.APP_NAME
+  BOT_NAME: config.BOT_NAME
+  build: googleapiclient.discovery.build
+  cache: agents.cache
+  CACHE_PATH: cache.CACHE_PATH
+  CACHED_URLS: config.CACHED_URLS
+  Callable: typing.Callable
+  CallbackContext: google.adk.agents.callback_context.CallbackContext
+  ChannelType: hikari.ChannelType
+  COMPACTION_INTERVAL: config.COMPACTION_INTERVAL
+  Content: google.genai.types.Content
+  ContextCacheConfig: google.adk.agents.context_cache_config.ContextCacheConfig
+  decide_on_answer: initial_decision_maker.decide_on_answer
+  decision_agent: agents.initial_decision_maker.decision_agent
+  DECISION_AGENT_DESCRIPTION: config.DECISION_AGENT_DESCRIPTION
+  DECISION_AGENT_MODEL: config.DECISION_AGENT_MODEL
+  DECISION_AGENT_NAME: config.DECISION_AGENT_NAME
+  DECISION_AGENT_OUTPUT_KEY: config.DECISION_AGENT_OUTPUT_KEY
+  decision_app: app.decision_app
+  DecisionOutput: initial_decision_maker.DecisionOutput
+  default: google.auth.default
+  delete_session: common.delete_session
+  document_reader: document_reader_agent.document_reader
+  DOCUMENT_READER_DESCRIPTION: config.DOCUMENT_READER_DESCRIPTION
+  DOCUMENT_READER_MODEL: config.DOCUMENT_READER_MODEL
+  DOCUMENT_READER_NAME: config.DOCUMENT_READER_NAME
+  ensure_session_exists: common.ensure_session_exists
+  Event: google.adk.events.Event
+  EventsCompactionConfig: google.adk.apps.app.EventsCompactionConfig
+  GenerateContentConfig: google.genai.types.GenerateContentConfig
+  google_search: google.adk.tools.google_search
+  handlers: logging.handlers
+  HarmBlockThreshold: google.genai.types.HarmBlockThreshold
+  HarmCategory: google.genai.types.HarmCategory
+  hikari: hikari
+  HttpError: googleapiclient.errors.HttpError
+  InMemorySessionService: google.adk.sessions.InMemorySessionService
+  io: io
+  itertools: itertools
+  json: json
+  LlmAgent: google.adk.agents.LlmAgent
+  LlmResponse: google.adk.models.LlmResponse
+  load_prompt: agents.common.load_prompt
+  load_session_with_messages: common.load_session_with_messages
+  logging: logging
+  MediaIoBaseDownload: googleapiclient.http.MediaIoBaseDownload
+  memory: memory
+  message_to_content: common.message_to_content
+  Optional: typing.Optional
+  os: os
+  OVERLAP_SIZE: config.OVERLAP_SIZE
+  Part: google.genai.types.Part
+  Path: pathlib.Path
+  platformdirs: platformdirs
+  pprint: pprint
+  pydantic: pydantic
+  reply_to_message: root_agent.reply_to_message
+  requests: requests
+  root_agent: agents.root_agent.root_agent
+  ROOT_AGENT_DESCRIPTION: config.ROOT_AGENT_DESCRIPTION
+  ROOT_AGENT_MODEL: config.ROOT_AGENT_MODEL
+  ROOT_AGENT_NAME: config.ROOT_AGENT_NAME
+  root_app: app.root_app
+  Runner: google.adk.runners.Runner
+  SafetySetting: google.genai.types.SafetySetting
+  SEARCH_AGENT_DESCRIPTION: config.SEARCH_AGENT_DESCRIPTION
+  SEARCH_AGENT_NAME: config.SEARCH_AGENT_NAME
+  Session: google.adk.sessions.Session
+  session_exists: common.session_exists
+  session_service: common.session_service
+  SLASH_COMMAND_STOP: config.SLASH_COMMAND_STOP
+  time: time
+  types: google.genai.types
+  urlparse: urllib.parse.urlparse
+  USER: common.USER
+  VERTEXAI_SEARCH_ENGINE_ID: config.VERTEXAI_SEARCH_ENGINE_ID
+  VertexAiSearchTool: google.adk.tools.vertex_ai_search_tool.VertexAiSearchTool
+
+functions:
+  __init__:
+    type: sync
+    module: adk-bot.app
+    args: [self]
+  _get_file_name:
+    type: sync
+    module: adk-bot.agents.cache
+    args: [url]
+    params:
+      returns: Path
+  add_to_cache:
+    type: sync
+    module: adk-bot.agents.cache
+    args: [url]
+    params:
+      returns: bytes
+  citation_retrieval_after_model_callback:
+    type: sync
+    module: adk-bot.agents.vertex_search_agent
+    args: [callback_context, llm_response]
+    params:
+      returns: Optional[LlmResponse]
+  decide_on_answer:
+    type: async
+    module: adk-bot.agents.initial_decision_maker
+    args: [message]
+    params:
+      returns: DecisionOutput
+  delete_session:
+    type: async
+    module: adk-bot.agents.common
+    args: [channel_id]
+    params:
+      returns: None
+  ensure_session_exists:
+    type: async
+    module: adk-bot.agents.common
+    args: [channel_id]
+    params:
+      returns: Session
+  get_available_documents:
+    type: sync
+    module: adk-bot.agents.document_reader_agent
+    params:
+      returns: dict
+  get_document:
+    type: sync
+    module: adk-bot.agents.document_reader_agent
+    args: [doc_name]
+    params:
+      returns: dict
+  get_from_cache:
+    type: sync
+    module: adk-bot.agents.cache
+    args: [url]
+    params:
+      returns: bytes
+  get_pre_cached_content:
+    type: sync
+    module: adk-bot.agents.cache
+    params:
+      returns: str
+  handle_interactions:
+    type: async
+    module: adk-bot.discord_engine
+    args: [event]
+    params:
+      returns: None
+  load_channel_history:
+    type: async
+    module: adk-bot.discord_engine
+    args: [channel]
+    params:
+      returns: list[hikari.Message]
+  load_pre_cached_urls:
+    type: sync
+    module: adk-bot.agents.cache
+  load_prompt:
+    type: sync
+    module: adk-bot.agents.common
+    args: [prompt_name]
+    params:
+      returns: Callable
+  load_session_with_messages:
+    type: async
+    module: adk-bot.agents.common
+    args: [channel_id, messages]
+  message_to_content:
+    type: sync
+    module: adk-bot.agents.common
+    args: [message, role]
+    params:
+      returns: Content
+  message_to_parts:
+    type: sync
+    module: adk-bot.agents.common
+    args: [message]
+    params:
+      returns: list[Part]
+  new_guild_message:
+    type: async
+    module: adk-bot.discord_engine
+    args: [event]
+    params:
+      returns: None
+  on_ready:
+    type: async
+    module: adk-bot.discord_engine
+    args: [event]
+  reply_to_message:
+    type: async
+    module: adk-bot.agents.root_agent
+    args: [message, channel_id]
+    params:
+      returns: Content
+  session_exists:
+    type: async
+    module: adk-bot.agents.common
+    args: [channel_id]
+    params:
+      returns: bool
+  start_discord_engine:
+    type: sync
+    module: adk-bot.discord_engine
+
+variables:
+  DISCORD_BOT_TOKEN:
+    type: env
+    params:
+      caller: [os.getenv, hikari.GatewayBot]
+      path: [adk-bot.discord_engine]
+
+files:
+  .txt:
+    type: literal
+    actions: [read]
+    params:
+      caller: [load_prompt]
+      path: [PROMPTS_PATH]
+  CACHE_PATH:
+    type: literal
+    actions: [read]
+    params:
+      caller: [Path(platformdirs.user_cache_path('discord-bot')), Path]
+  DOCS_PATH:
+    type: variable
+    actions: [write]
+    params:
+      caller: [DOCS_PATH.mkdir]
+  file_path:
+    type: literal
+    actions: [read, write]
+    params:
+      caller: [Path(CACHE_PATH), file_path.parent.mkdir, file_path.read_bytes, open, file_path.read_text]
+  shared_prompt.txt:
+    type: literal
+    actions: [read]
+    params:
+      path: [PROMPTS_PATH]
